@@ -1,10 +1,46 @@
 from fasthtml.common import *
+from monsterui.all import *
 from dataclasses import dataclass, field
+from starlette.staticfiles import StaticFiles
 from uuid import uuid4
 from datetime import datetime
 
-app = FastHTML()
+from helpers import hash_password, verify_password, login_required
+
+import sqlite3
+
+# --- DB setup ---
+DB_PATH = "users.db"
+def get_db():
+    conn = sqlite3.connect("users.db")
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    db = get_db()
+    db.execute(
+        """"
+        CREATE TABLE IF NOT EXISTS users(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP)
+        """
+    )
+    db.commit()
+    db.close()
+
+# Initialize DB on startup
+init_db()
+
+
+# -- App setup ---
+hdrs = Theme.blue.headers()
+app = FastHTML(hdrs=hdrs, static_dir="static")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 rt = app.route
+db = get_db()
 
 @dataclass
 class Message:
@@ -187,7 +223,40 @@ def complete_intake(sid: str):
     s.status = "READY_FOR_REVIEW",
     return Redirect(f"/beneficiary/{sid}")
 
-## Nurse Part to finish 
+## Nurse Part 
+rt("/nurse")
+def nurse_dashboard():
+    ready = [
+        s for s in sessions.values() if s.status in ("READY_FOR_REVIEW", "URGENT_BYPASS")
+    ]
+    
+    if not ready:
+        return Titled(
+            "Nurse Dashboard",
+            Div("No cases ready for review.", cls="alert alert-info")
+        )
+    return Titled(
+        "Nurse Dashboard",
+        Div(
+            *[nurse_case_card(s) for s in ready],
+            cls="grid gap-4"
+        )
+    )
+
+def nurse_case_card(s: ChatSession):
+    last_msg = s.messages[-1].content if s.messages else "No messages yet."
+
+    return Div(
+        status_badge(s.status),
+        Div(f"Session: {s.session_id}", cls="font-mono text-sm"),
+        Div(f"Last message: {last_msg[:80]}"),
+        A(
+            "Open case", href=f"/nurse/{s.session_id}",
+            cls = "btn btn-primary btn-sm mt-2"
+            ),
+        cls="card bg-base-100 shadow p-4"
+    )
+
 @rt("/nurse/{sid}")
 def nurse_view(sid: str):
     s = sessions[sid]
@@ -207,13 +276,20 @@ def nurse_view(sid: str):
 
 
 @rt("/send")
-def send(session_id : str, role : str, message: str):
-    sessions[session_id].append(Message(role=role, content=message))
-    return Div(
-        chat_window(sessions[session_id]),
-        id="chat-area"
+def nurse_send(sid : str, message: str):
+    s = sessions[sid]
+
+    s.messages.append(
+        Message(
+            role="nurse",
+            content=message,
+            timestamp=datetime.now(),
+            phase="post_intake"
+        )
     )
 
+    s.status = "CLOSED"
 
+    return chat_window(s.messages)
 
 serve()
