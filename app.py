@@ -21,12 +21,44 @@ class ChatSession:
     intake_complete: bool = False
     urgent : bool = False
 
-sessions = {}
+sessions : dict[str, ChatSession] = {}
+
+URGENT_KEYWORDS = [
+    "chest pain",
+    "shortness of breath",
+    "can't breathe",
+    "severe bleeding",
+    "unconscious",
+    "stroke",
+    "heart attack"
+]
+
+def is_urgent(text: str) -> bool:
+    t = text.lower()
+    return any(keyword in t for keyword in URGENT_KEYWORDS)
 
 # --- UI helpers ---
+
+def status_badge(status: str):
+    color = {
+        "INTAKE_IN_PROGRESS" : "badge-warning",
+        "READY_FOR_REVIEW" : "badge-success",
+        "URGENT_BYPASS" : "badge-error",
+        "CLOSED" : "badge-neutral"
+    }.get(status, "badge-neutral")
+
+    return Div(
+        status.replace("_", " "),
+        cls=f"badge {color} mb-4"
+    )
+
 def chat_bubble(msg: Message):
     align = "chat-start" if msg.role == "beneficiary" else "chat-end"
-    color = "chat-bubble-neutral" if msg.role == "beneficiary" else "chat-bubble-primary"
+    color = {
+        "beneficiary" : "chat-bubble-neutral",
+        "nurse" : "chat-bubble-primary",
+        "assistant" : "chat-bubble-info",
+    }.get(msg.role, "chat-bubble-neutral")
 
     phase_tag = ""
     if msg.phase == "post_intake":
@@ -38,14 +70,7 @@ def chat_bubble(msg: Message):
         cls=f"chat {align}"
     )
 
-
-    return Div(
-        Div(msg.role.capitalize(), cls="chat-header"),
-        Div(msg.content, cls=f"chat-bubble {color}"),
-        cls=f"chat {align}"
-    )
-
-def chat_window(messages):
+def chat_window(messages: list[Message]):
     return Div(
         *[chat_bubble(m) for m in messages],
         id="chat-window",
@@ -53,58 +78,56 @@ def chat_window(messages):
     )
 
 
-def status_badge(status):
-    color = {
-        "READY_FOR_REVIEW" : "badge-success",
-        "URGENT_BYPASS" : "badge-error",
-        "INTAKE_IN_PROGRESS" : "badge-warning"
-    }.get(status, "badge-neutral")
+# --- Forms ---
 
-    return Div(
-        status.replace("_", " "),
-        cls=f"badge {color} mb-4"
+def beneficiary_form(sid: str, intake_complete: bool):
+    return Form(
+        Input(type="hidden", name="sid", value=sid),
+        Input(
+            name="message",
+            placeholder="Type your message...",
+            cls="input input-bordered w-full"
+        ),
+        Button("Send", cls="btn btn-primary mt-2"),
+        hx_post=f"/beneficiary/{sid}/send",
+        hx_target="#chat-window",
+        hx_swap="outerHTML"
     )
 
-def render_beneficiary_chat(messages):
-    return Div(
-        *[chat_bubble(m) for m in messages if m.role != "assistant"],
-        cls="flex flex-col gap-2"
+def beneficiary_controls(sid: str, intake_complete: bool):
+    if intake_complete:
+        return Div(
+            "Intake completed. You may continue messaging.",
+            cls="alert alert-info mt-4"
+        )
+    
+    return Form(
+        Button(
+            "Finish intake and send to Nurse",
+            cls="btn btn-success mt-4"
+        ),
+        hx_post=f"/beneficiary/{sid}/complete",
+        hx_target="body",
+        hx_swap="outerHTML"
     )
 
-def render_nurse_chat(messages):
-    return Div(
-        *[chat_bubble(m) for m in messages],
-        cls="flex flex-col gap-2"
+def nurse_form(sid: str):
+    return Form(
+        Input(type="hidden", name="sid", value=sid),
+        Input(name="message", placeholder="Reply to beneficiary...", cls="input input-bordered w-full"),
+        Button("Send", cls="btn btn-primary mt-2"),
+        hx_post=f"/nurse/{sid}/send",
+        hx_target="#chat-window",
+        hx_swap="outerHTML"
     )
+
+
 # --- Routes ---
-
 @rt("/")
 def index():
-    session_id = str(uuid4())
-    sessions[session_id] = []
+    Redirect("/start")
 
-    return Titled(
-        "Nurse-Beneficiary Chat",
-        Form(
-            Input(type="hidden", name="session_id", value=session_id),
-            Select(
-                Option("Beneficiary", value="beneficiary"),
-                Option("Nurse", value="nurse"),
-                name="role",
-                cls="select select-bordered w-full max-w-xs"
-            ),
-            Input(
-                name="message",
-                placeholder="Type your message...",
-                cls="input input-bordered w-full"
-            ),
-            Button("Send", cls="btn btn-primary"),
-            hx_post="/send",
-            hx_target="#chat-area",
-            hx_swap="outerHTML"
-        ),
-        Div(id="chat-area", cls="mt-6")
-    )
+
 # Start Session
 @rt("/start")
 def start():
@@ -115,7 +138,8 @@ def start():
     )
     return Redirect(f"/beneficiary/{sid}")
 
-# Beneficiary View
+### Beneficiary Part
+
 @rt("/beneficiary/{sid}")
 def beneficiary_view(sid: str):
     s = sessions[sid]
@@ -124,10 +148,11 @@ def beneficiary_view(sid: str):
         "Chat with Care Team", 
         status_badge(s.status),
         chat_window(s.messages),
-        beneficiary_form(sid, s.intake_complete)
+        beneficiary_form(sid, s.intake_complete),
+        beneficiary_controls(sid, s.intake_complete)
     )
 
-# Beneficiary send
+
 @rt("/beneficiary/{sid}/send")
 def beneficiary_send(sid: str, message: str):
     s = sessions[sid]
@@ -139,8 +164,8 @@ def beneficiary_send(sid: str, message: str):
     # URGENT BYPASS
     if is_urgent(message) and s.status != "URGENT_BYPASS":
         s.urgent = True
-        s.status = "URGENT_BYPASS"
         s.intake_complete = True
+        s.status = "URGENT_BYPASS"
 
         s.message.append(
             Message(
@@ -155,7 +180,6 @@ def beneficiary_send(sid: str, message: str):
         )
     return chat_window(s.messages)
 
-# Beneficiary - intake completion 
 @rt("beneficiary/{sid}/complete")
 def complete_intake(sid: str):
     s = sessions[sid]
@@ -163,7 +187,7 @@ def complete_intake(sid: str):
     s.status = "READY_FOR_REVIEW",
     return Redirect(f"/beneficiary/{sid}")
 
-# Nurse View
+## Nurse Part to finish 
 @rt("/nurse/{sid}")
 def nurse_view(sid: str):
     s = sessions[sid]
