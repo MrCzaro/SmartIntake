@@ -2,7 +2,7 @@ from fasthtml.common import *
 from monsterui.all import *
 
 def beneficiary_form(sid: str, intake_complete: bool):
-    return Form(
+    return Form( 
         Input(type="hidden", name="sid", value=sid),
         Input(
             name="message",
@@ -42,4 +42,89 @@ def nurse_form(sid: str):
         hx_swap="outerHTML"
     )
 
-def login_card
+def login_card(error_message: str|None = None, prefill_email: str = ""):
+    """
+    Returns a login card form.
+        error_message: Optional error message to display.
+        prefill_email: Optional email to prefill the form.
+    """
+    return Card(
+        CardHeader(H3("Login")),
+        CardBody(
+            *([P(error_message, cls="bg-red-600 font-semibold")] if error_message else []),
+            Form(
+                LabelInput(
+                    "Email",
+                    name="email", 
+                    value=prefill_email,
+                    placeholder="user@example.com",
+                ),
+                LabelInput(
+                    "Password",
+                    name="password",
+                    type="password",
+                    placeholder="Enter your password"
+                ),
+                Div(
+                    Button(
+                        "Login",
+                        cls="ButtonT.primary + rounded-lg py-2 px-4 md:py-3 md:px-5 text-sm md:text-base",
+                        type="submit"
+                        ),
+                        cls="mt-4"
+                ),
+                action="/login",
+                method="post"
+            )
+        ),
+        CardFooter("Do not have an account? ", A(B("Sign up"), href="/signup"))
+    )
+
+
+def signup_card(error_message: str | None = None, prefill_email: str =""):
+    return Card(
+        CardHeader(H3("Create Account")),
+        CardBody(
+            *([P(error_message, cls="text-red-600 font-semibold")] if error_message else []),
+            Form(
+                LabelInput(
+                    "Email",
+                    name="email",
+                    value=prefill_email,
+                    placeholder="user@example.com"
+                ),
+                LabelInput(
+                    "Password",
+                    name="password",
+                    type="password",
+                    placeholder="Choose a password"
+                ),
+                LabelInput(
+                    "Repeat Password",
+                    name="repeat_password",
+                    type="password",
+                    placeholder="Repeat password"
+                ),
+                Div(
+                    Label("Role"),
+                    Select(
+                        Option("Beneficiary", value="beneficiary"),
+                        Option("Nurse", value="nurse"),
+                        name="role",
+                        cls="select select-bordered w-full"
+                    ),
+                    cls="mt-2"
+                ),
+                Div(
+                    Button("Sign Up", cls=ButtonT.primary + " mt-4"),
+                ),
+                action="/signup",
+                method="post"
+            )
+        ),
+        CardFooter(
+            "Already have an account? ",
+            A(B("Login"), href="/login")
+        )
+    )
+

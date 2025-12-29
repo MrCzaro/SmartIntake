@@ -4,11 +4,13 @@ from dataclasses import dataclass, field
 from starlette.staticfiles import StaticFiles
 from uuid import uuid4
 from datetime import datetime
-
+from starlette.middleware.sessions import SessionMiddleware
 from forms import nurse_form, beneficiary_form, beneficiary_controls
-from helpers import hash_password, verify_password, login_required, login_card
+from helpers import hash_password, verify_password, login_required 
+from forms import login_card, signup_card
 
 import sqlite3
+
 
 # --- DB setup ---
 DB_PATH = "users.db"
@@ -20,7 +22,7 @@ def get_db():
 def init_db():
     db = get_db()
     db.execute(
-        """"
+        """
         CREATE TABLE IF NOT EXISTS users(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT UNIQUE NOT NULL,
@@ -39,6 +41,7 @@ init_db()
 # -- App setup ---
 hdrs = Theme.blue.headers()
 app = FastHTML(hdrs=hdrs, static_dir="static")
+app.add_middleware(SessionMiddleware, secret_key="secret-session-key")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 rt = app.route
 db = get_db()
@@ -101,11 +104,11 @@ def layout(request, content):
     links = []
 
     if not user:
-        links.append(Button("Login", hx_get="/login", hx_target="#content", cls=ButtonT.primary))
-        links.append(Button("Signup", hx_get="/signup", hx_target="#content", cls=ButtonT.secondary))
+        links.append(A("Login", href="/login", cls=ButtonT.primary))
+        links.append(A("Signup", href="/signup", cls=ButtonT.secondary))
     else:
-        links.append(Span(f"Role: {role}", cls="text-white mr-4"))
-        links.append(Button("Logout", hx_get="/logout", cls=ButtonT.secondary))
+        links.append(Span(f"Role: {role.capitalize()}", cls="text-white mr-4"))
+        links.append(A("Logout", href="/logout", cls=ButtonT.secondary))
 
     nav = Nav(
         Div(logo),
@@ -161,14 +164,22 @@ def chat_window(messages: list[Message]):
 
 
 # --- Routes ---
-@rt("/")
-def index():
-    Redirect("/start")
+@rt("/favicon.ico")
+def favicon(request):
+    """
+    Redirects the browser to the static file.
+    """
+    return Redirect("/static/favicon.ico")
 
+@rt("/")
+@login_required
+def index(request):
+    return layout(request, H3("Welcome to MedAIChat!"))
 
 # Start Session
 @rt("/start")
-def start():
+@login_required
+def start(request):
     sid = str(uuid4())
     sessions[sid] = ChatSession(
         session_id=sid,
@@ -177,39 +188,80 @@ def start():
     return Redirect(f"/beneficiary/{sid}")
 
 ### Registration/Login/Logout
+@rt("/signup")
+async def signup_user(request):
+    if request.method == "GET":
+        return layout(request, signup_card())
+    elif request.method == "POST":
+        form = await request.form()
+
+        email = form.get("email", "").strip().lower()
+        password = form.get("password", "")
+        repeat = form.get("repeat_password", "")
+        role = form.get("role", "")
+
+        if not email or not password or not role:
+            return layout(request , signup_card("All fields are required.", email))
+        
+        if password != repeat:
+            return layout(request, signup_card("Password do not match.", email))
+        
+        db = get_db()
+        cur = db.execute("SELECT id FROM users WHERE email = ?", (email,))
+        if cur.fetchone():
+            db.close()
+            return layout(request, signup_card("User already exists.", email))
+        
+        db.execute(
+            "INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",
+            (email, hash_password(password), role)
+        )
+        db.commit()
+        db.close()
+
+        request.session["user"] = email
+        request.session["role"] = role
+
+        return Redirect("/")
+
 @rt("/login")
-async def post_login(request):
-    form = await request.form()
-    email = form.get("email", "").strip().lower()
-    password = form.get("password", "")
+async def login(request):
+    if request.method == "GET":
+        return layout(request, login_card())
+    elif request.method == "POST":
+        form = await request.form()
+        email = form.get("email", "").strip().lower()
+        password = form.get("password", "").strip()
 
-    if not email or not password:
-        return login_card("All gields are required.", email)
-    
-    db = get_db()
-    cur = db.execute(
-            "SELECT email, password_hash, role FROM users WHERE email = ?",
-            (email,)
-    )
-    user = cur.fetchone()
-    db.close()
+        if not email or not password:
+            return layout(request, login_card("All fields are required.", email))
+        
+        db = get_db()
+        cur = db.execute(
+                "SELECT email, password_hash, role FROM users WHERE email = ?",
+                (email,)
+        )
+        user = cur.fetchone()
+        db.close()
 
-    if not user or not verify_password(password, user["password_hash"]):
-        return login_card("Invalid credentials.", email)
-    
-    request.session["user"] = user["email"]
-    request.session["role"] = user["role"]
-    return Redirect("/")
+        if not user or not verify_password(password, user["password_hash"]):
+            return layout(request, login_card("Invalid credentials.", email))
+        
+        request.session["user"] = user["email"]
+        request.session["role"] = user["role"]
+        return Redirect("/")
 
 @rt("/logout")
+@login_required
 def logout(request):
     request.session.clear()
-    return Redirect("/")
+    return Redirect("/login")
 
 ### Beneficiary Part
 
 @rt("/beneficiary/{sid}")
-def beneficiary_view(sid: str):
+@login_required
+def beneficiary_view(request, sid: str):
     s = sessions[sid]
 
     return Titled(
@@ -222,7 +274,8 @@ def beneficiary_view(sid: str):
 
 
 @rt("/beneficiary/{sid}/send")
-def beneficiary_send(sid: str, message: str):
+@login_required
+def beneficiary_send(request, sid: str, message: str):
     s = sessions[sid]
 
     phase = "post_intake" if s.intake_complete else "intake"
@@ -235,7 +288,7 @@ def beneficiary_send(sid: str, message: str):
         s.intake_complete = True
         s.status = "URGENT_BYPASS"
 
-        s.message.append(
+        s.messages.append(
             Message(
                 role="assistant",
                 content=(
@@ -248,16 +301,18 @@ def beneficiary_send(sid: str, message: str):
         )
     return chat_window(s.messages)
 
-@rt("beneficiary/{sid}/complete")
-def complete_intake(sid: str):
+@rt("/beneficiary/{sid}/complete")
+@login_required
+def complete_intake(request, sid: str):
     s = sessions[sid]
     s.intake_complete = True
-    s.status = "READY_FOR_REVIEW",
+    s.status = "READY_FOR_REVIEW" 
     return Redirect(f"/beneficiary/{sid}")
 
 ## Nurse Part 
-rt("/nurse")
-def nurse_dashboard():
+@rt("/nurse")
+@login_required
+def nurse_dashboard(request):
     ready = [
         s for s in sessions.values() if s.status in ("READY_FOR_REVIEW", "URGENT_BYPASS")
     ]
@@ -277,7 +332,8 @@ def nurse_dashboard():
 
 
 @rt("/nurse/{sid}")
-def nurse_view(sid: str):
+@login_required
+def nurse_view(request, sid: str):
     s = sessions[sid]
 
     if s.status not in ("READY_FOR_REVIEW", "URGENT_BYPASS"):
@@ -294,8 +350,9 @@ def nurse_view(sid: str):
     )
 
 
-@rt("/send")
-def nurse_send(sid : str, message: str):
+@rt("/nurse/{sid}/send")
+@login_required
+def nurse_send(request, sid : str, message: str):
     s = sessions[sid]
 
     s.messages.append(
