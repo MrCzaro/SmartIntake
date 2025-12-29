@@ -5,7 +5,8 @@ from starlette.staticfiles import StaticFiles
 from uuid import uuid4
 from datetime import datetime
 
-from helpers import hash_password, verify_password, login_required
+from forms import nurse_form, beneficiary_form, beneficiary_controls
+from helpers import hash_password, verify_password, login_required, login_card
 
 import sqlite3
 
@@ -59,6 +60,22 @@ class ChatSession:
 
 sessions : dict[str, ChatSession] = {}
 
+def nurse_case_card(s: ChatSession):
+    last_msg = s.messages[-1].content if s.messages else "No messages yet."
+
+    return Div(
+        status_badge(s.status),
+        Div(f"Session: {s.session_id}", cls="font-mono text-sm"),
+        Div(f"Last message: {last_msg[:80]}"),
+        A(
+            "Open case", href=f"/nurse/{s.session_id}",
+            cls = "btn btn-primary btn-sm mt-2"
+            ),
+        cls="card bg-base-100 shadow p-4"
+    )
+
+
+
 URGENT_KEYWORDS = [
     "chest pain",
     "shortness of breath",
@@ -74,6 +91,34 @@ def is_urgent(text: str) -> bool:
     return any(keyword in t for keyword in URGENT_KEYWORDS)
 
 # --- UI helpers ---
+
+def layout(request, content):
+    user = request.session.get("user")
+    role = request.session.get("role")
+
+    logo = A("MedAIChat", href="/", cls="text-xl font-bold text-white")
+
+    links = []
+
+    if not user:
+        links.append(Button("Login", hx_get="/login", hx_target="#content", cls=ButtonT.primary))
+        links.append(Button("Signup", hx_get="/signup", hx_target="#content", cls=ButtonT.secondary))
+    else:
+        links.append(Span(f"Role: {role}", cls="text-white mr-4"))
+        links.append(Button("Logout", hx_get="/logout", cls=ButtonT.secondary))
+
+    nav = Nav(
+        Div(logo),
+        Div(*links, cls="flex gap-2"),
+        cls="flex justify-between bg-blue-600 px-4 py-2"
+    )
+
+    return Div(
+        Header(nav),
+        Div(Container(content, id="content", cls="mt-10"), cls="flex-1"),
+        Footer("© 2025 MedAIChat", cls="bg-blue-600 text-white p-4"),
+        cls="min-h-screen flex flex-col"
+    )
 
 def status_badge(status: str):
     color = {
@@ -114,49 +159,6 @@ def chat_window(messages: list[Message]):
     )
 
 
-# --- Forms ---
-
-def beneficiary_form(sid: str, intake_complete: bool):
-    return Form(
-        Input(type="hidden", name="sid", value=sid),
-        Input(
-            name="message",
-            placeholder="Type your message...",
-            cls="input input-bordered w-full"
-        ),
-        Button("Send", cls="btn btn-primary mt-2"),
-        hx_post=f"/beneficiary/{sid}/send",
-        hx_target="#chat-window",
-        hx_swap="outerHTML"
-    )
-
-def beneficiary_controls(sid: str, intake_complete: bool):
-    if intake_complete:
-        return Div(
-            "Intake completed. You may continue messaging.",
-            cls="alert alert-info mt-4"
-        )
-    
-    return Form(
-        Button(
-            "Finish intake and send to Nurse",
-            cls="btn btn-success mt-4"
-        ),
-        hx_post=f"/beneficiary/{sid}/complete",
-        hx_target="body",
-        hx_swap="outerHTML"
-    )
-
-def nurse_form(sid: str):
-    return Form(
-        Input(type="hidden", name="sid", value=sid),
-        Input(name="message", placeholder="Reply to beneficiary...", cls="input input-bordered w-full"),
-        Button("Send", cls="btn btn-primary mt-2"),
-        hx_post=f"/nurse/{sid}/send",
-        hx_target="#chat-window",
-        hx_swap="outerHTML"
-    )
-
 
 # --- Routes ---
 @rt("/")
@@ -173,6 +175,36 @@ def start():
         status="INTAKE_IN_PROGRESS"
     )
     return Redirect(f"/beneficiary/{sid}")
+
+### Registration/Login/Logout
+@rt("/login")
+async def post_login(request):
+    form = await request.form()
+    email = form.get("email", "").strip().lower()
+    password = form.get("password", "")
+
+    if not email or not password:
+        return login_card("All gields are required.", email)
+    
+    db = get_db()
+    cur = db.execute(
+            "SELECT email, password_hash, role FROM users WHERE email = ?",
+            (email,)
+    )
+    user = cur.fetchone()
+    db.close()
+
+    if not user or not verify_password(password, user["password_hash"]):
+        return login_card("Invalid credentials.", email)
+    
+    request.session["user"] = user["email"]
+    request.session["role"] = user["role"]
+    return Redirect("/")
+
+@rt("/logout")
+def logout(request):
+    request.session.clear()
+    return Redirect("/")
 
 ### Beneficiary Part
 
@@ -243,19 +275,6 @@ def nurse_dashboard():
         )
     )
 
-def nurse_case_card(s: ChatSession):
-    last_msg = s.messages[-1].content if s.messages else "No messages yet."
-
-    return Div(
-        status_badge(s.status),
-        Div(f"Session: {s.session_id}", cls="font-mono text-sm"),
-        Div(f"Last message: {last_msg[:80]}"),
-        A(
-            "Open case", href=f"/nurse/{s.session_id}",
-            cls = "btn btn-primary btn-sm mt-2"
-            ),
-        cls="card bg-base-100 shadow p-4"
-    )
 
 @rt("/nurse/{sid}")
 def nurse_view(sid: str):
