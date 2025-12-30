@@ -171,22 +171,6 @@ def favicon(request):
     """
     return Redirect("/static/favicon.ico")
 
-@rt("/")
-@login_required
-def index(request):
-    return layout(request, H3("Welcome to MedAIChat!"))
-
-# Start Session
-@rt("/start")
-@login_required
-def start(request):
-    sid = str(uuid4())
-    sessions[sid] = ChatSession(
-        session_id=sid,
-        status="INTAKE_IN_PROGRESS"
-    )
-    return Redirect(f"/beneficiary/{sid}")
-
 ### Registration/Login/Logout
 @rt("/signup")
 async def signup_user(request):
@@ -257,6 +241,34 @@ def logout(request):
     request.session.clear()
     return Redirect("/login")
 
+### Home Route
+@rt("/")
+@login_required
+def index(request):
+    role = request.session.get("role")
+
+    if role == "beneficiary":
+        return Redirect("/start")
+    
+    if role == "nurse":
+        return Redirect("/nurse")
+    
+    # Fallback (future roles)
+    return Redirect("/login")
+
+
+# Start Session
+@rt("/start")
+@login_required
+def start(request):
+    sid = str(uuid4())
+    sessions[sid] = ChatSession(
+        session_id=sid,
+        status="INTAKE_IN_PROGRESS"
+    )
+    return Redirect(f"/beneficiary/{sid}")
+
+
 ### Beneficiary Part
 
 @rt("/beneficiary/{sid}")
@@ -264,13 +276,14 @@ def logout(request):
 def beneficiary_view(request, sid: str):
     s = sessions[sid]
 
-    return Titled(
+    content = Titled(
         "Chat with Care Team", 
         status_badge(s.status),
         chat_window(s.messages),
         beneficiary_form(sid, s.intake_complete),
         beneficiary_controls(sid, s.intake_complete)
     )
+    return layout(request, content)
 
 
 @rt("/beneficiary/{sid}/send")
@@ -309,7 +322,7 @@ def complete_intake(request, sid: str):
     s.status = "READY_FOR_REVIEW" 
     return Redirect(f"/beneficiary/{sid}")
 
-## Nurse Part 
+###  Nurse Part 
 @rt("/nurse")
 @login_required
 def nurse_dashboard(request):
@@ -318,17 +331,19 @@ def nurse_dashboard(request):
     ]
     
     if not ready:
-        return Titled(
+        content =  Titled(
+                "Nurse Dashboard",
+                Div("No cases ready for review.", cls="alert alert-info")
+            )
+    else:
+        content = Titled(
             "Nurse Dashboard",
-            Div("No cases ready for review.", cls="alert alert-info")
+            Div(
+                *[nurse_case_card(s) for s in ready],
+                cls="grid gap-4"
+            )
         )
-    return Titled(
-        "Nurse Dashboard",
-        Div(
-            *[nurse_case_card(s) for s in ready],
-            cls="grid gap-4"
-        )
-    )
+    return layout(request, content)
 
 
 @rt("/nurse/{sid}")
@@ -337,17 +352,19 @@ def nurse_view(request, sid: str):
     s = sessions[sid]
 
     if s.status not in ("READY_FOR_REVIEW", "URGENT_BYPASS"):
-        return Titled(
+        content =  Titled(
             "Nurse View",
             Div("Case still in intake.", cls="alert alert-warning")
         )
     
-    return Titled(
-        "Nurse Review",
-        status_badge(s.status),
-        chat_window(s.messages),
-        nurse_form(sid)
-    )
+    else:
+        content = Titled(
+            "Nurse Review",
+            status_badge(s.status),
+            chat_window(s.messages),
+            nurse_form(sid)
+        )
+    return layout(request, content)
 
 
 @rt("/nurse/{sid}/send")
