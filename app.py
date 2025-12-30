@@ -6,37 +6,13 @@ from uuid import uuid4
 from datetime import datetime
 from starlette.middleware.sessions import SessionMiddleware
 from forms import nurse_form, beneficiary_form, beneficiary_controls
-from helpers import hash_password, verify_password, login_required 
+from helpers import hash_password, verify_password, login_required, get_session_or_404, require_role, init_db
 from forms import login_card, signup_card
 
-import sqlite3
 
-
-# --- DB setup ---
-DB_PATH = "users.db"
-def get_db():
-    conn = sqlite3.connect("users.db")
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def init_db():
-    db = get_db()
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS users(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            role TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP)
-        """
-    )
-    db.commit()
-    db.close()
 
 # Initialize DB on startup
 init_db()
-
 
 # -- App setup ---
 hdrs = Theme.blue.headers()
@@ -44,7 +20,6 @@ app = FastHTML(hdrs=hdrs, static_dir="static")
 app.add_middleware(SessionMiddleware, secret_key="secret-session-key")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 rt = app.route
-db = get_db()
 
 @dataclass
 class Message:
@@ -78,7 +53,7 @@ def nurse_case_card(s: ChatSession):
     )
 
 
-
+# Globals
 URGENT_KEYWORDS = [
     "chest pain",
     "shortness of breath",
@@ -88,6 +63,11 @@ URGENT_KEYWORDS = [
     "stroke",
     "heart attack"
 ]
+STATUS_INTAKE = "INTAKE_IN_PROGRESS"
+STATUS_READY = "READY_FOR_REVIEW"
+STATUS_URGENT = "URGENT_BYPASS"
+STATUS_CLOSED = "CLOSED"
+
 
 def is_urgent(text: str) -> bool:
     t = text.lower()
@@ -95,7 +75,7 @@ def is_urgent(text: str) -> bool:
 
 # --- UI helpers ---
 
-def layout(request, content):
+def layout(request, content, page_title="MedAiChat"):
     user = request.session.get("user")
     role = request.session.get("role")
 
@@ -115,20 +95,25 @@ def layout(request, content):
         Div(*links, cls="flex gap-2"),
         cls="flex justify-between bg-blue-600 px-4 py-2"
     )
-
-    return Div(
-        Header(nav),
-        Div(Container(content, id="content", cls="mt-10"), cls="flex-1"),
-        Footer("© 2025 MedAIChat", cls="bg-blue-600 text-white p-4"),
-        cls="min-h-screen flex flex-col"
+    return Html(
+        Head(
+            *hdrs,
+            Title(page_title)
+        ),
+        Div(
+            Header(nav),
+            Div(Container(content, id="content", cls="mt-10"), cls="flex-1"),
+            Footer("© 2025 MedAIChat", cls="bg-blue-600 text-white p-4"),
+            cls="min-h-screen flex flex-col"
+        )
     )
 
 def status_badge(status: str):
     color = {
-        "INTAKE_IN_PROGRESS" : "badge-warning",
-        "READY_FOR_REVIEW" : "badge-success",
-        "URGENT_BYPASS" : "badge-error",
-        "CLOSED" : "badge-neutral"
+        STATUS_INTAKE : "badge-warning",
+        STATUS_READY  : "badge-success",
+        STATUS_URGENT : "badge-error",
+        STATUS_CLOSED : "badge-neutral"
     }.get(status, "badge-neutral")
 
     return Div(
@@ -174,8 +159,9 @@ def favicon(request):
 ### Registration/Login/Logout
 @rt("/signup")
 async def signup_user(request):
+    page_title="Signup - MedAIChat"
     if request.method == "GET":
-        return layout(request, signup_card())
+        return layout(request, signup_card(), page_title)
     elif request.method == "POST":
         form = await request.form()
 
@@ -185,16 +171,16 @@ async def signup_user(request):
         role = form.get("role", "")
 
         if not email or not password or not role:
-            return layout(request , signup_card("All fields are required.", email))
+            return layout(request , signup_card("All fields are required.", email), page_title)
         
         if password != repeat:
-            return layout(request, signup_card("Password do not match.", email))
+            return layout(request, signup_card("Password do not match.", email), page_title)
         
         db = get_db()
         cur = db.execute("SELECT id FROM users WHERE email = ?", (email,))
         if cur.fetchone():
             db.close()
-            return layout(request, signup_card("User already exists.", email))
+            return layout(request, signup_card("User already exists.", email), page_title)
         
         db.execute(
             "INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",
@@ -210,15 +196,16 @@ async def signup_user(request):
 
 @rt("/login")
 async def login(request):
+    page_title = "Login - MedAIChat"
     if request.method == "GET":
-        return layout(request, login_card())
+        return layout(request, login_card(), page_title)
     elif request.method == "POST":
         form = await request.form()
         email = form.get("email", "").strip().lower()
         password = form.get("password", "").strip()
 
         if not email or not password:
-            return layout(request, login_card("All fields are required.", email))
+            return layout(request, login_card("All fields are required.", email), page_title)
         
         db = get_db()
         cur = db.execute(
@@ -229,7 +216,7 @@ async def login(request):
         db.close()
 
         if not user or not verify_password(password, user["password_hash"]):
-            return layout(request, login_card("Invalid credentials.", email))
+            return layout(request, login_card("Invalid credentials.", email), page_title)
         
         request.session["user"] = user["email"]
         request.session["role"] = user["role"]
@@ -264,7 +251,7 @@ def start(request):
     sid = str(uuid4())
     sessions[sid] = ChatSession(
         session_id=sid,
-        status="INTAKE_IN_PROGRESS"
+        status=STATUS_INTAKE
     )
     return Redirect(f"/beneficiary/{sid}")
 
@@ -273,9 +260,10 @@ def start(request):
 
 @rt("/beneficiary/{sid}")
 @login_required
-def beneficiary_view(request, sid: str):
-    s = sessions[sid]
-
+def beneficiary_view(request, sid: str, message: str):
+    require_role(request, "beneficiary")
+    s = get_session_or_404(sessions, sid)
+    page_title = "Beneficiary Chat - MedAIChat"
     content = Titled(
         "Chat with Care Team", 
         status_badge(s.status),
@@ -283,23 +271,24 @@ def beneficiary_view(request, sid: str):
         beneficiary_form(sid, s.intake_complete),
         beneficiary_controls(sid, s.intake_complete)
     )
-    return layout(request, content)
+    return layout(request, content, page_title)
 
 
 @rt("/beneficiary/{sid}/send")
 @login_required
 def beneficiary_send(request, sid: str, message: str):
-    s = sessions[sid]
+    require_role(request, "beneficiary")
+    s = get_session_or_404(sessions, sid)
 
     phase = "post_intake" if s.intake_complete else "intake"
 
     s.messages.append(Message(role="beneficiary", content=message, timestamp=datetime.now(), phase=phase))
     
     # URGENT BYPASS
-    if is_urgent(message) and s.status != "URGENT_BYPASS":
+    if is_urgent(message) and s.status != STATUS_URGENT:
         s.urgent = True
         s.intake_complete = True
-        s.status = "URGENT_BYPASS"
+        s.status = STATUS_URGENT
 
         s.messages.append(
             Message(
@@ -317,17 +306,20 @@ def beneficiary_send(request, sid: str, message: str):
 @rt("/beneficiary/{sid}/complete")
 @login_required
 def complete_intake(request, sid: str):
-    s = sessions[sid]
+    require_role(request, "beneficiary")
+    s = get_session_or_404(sessions, sid)
     s.intake_complete = True
-    s.status = "READY_FOR_REVIEW" 
+    s.status = STATUS_READY 
     return Redirect(f"/beneficiary/{sid}")
 
 ###  Nurse Part 
 @rt("/nurse")
 @login_required
 def nurse_dashboard(request):
+    require_role(request, "nurse")
+    page_title = "Nurse Dashboard - MedAIChat"
     ready = [
-        s for s in sessions.values() if s.status in ("READY_FOR_REVIEW", "URGENT_BYPASS")
+        s for s in sessions.values() if s.status in (STATUS_READY, STATUS_URGENT)
     ]
     
     if not ready:
@@ -343,15 +335,17 @@ def nurse_dashboard(request):
                 cls="grid gap-4"
             )
         )
-    return layout(request, content)
+    return layout(request, content, page_title)
 
 
 @rt("/nurse/{sid}")
 @login_required
 def nurse_view(request, sid: str):
-    s = sessions[sid]
+    require_role(request, "nurse")
+    page_title = "Nurse Review - MedAIChat"
+    s = get_session_or_404(sessions, sid)
 
-    if s.status not in ("READY_FOR_REVIEW", "URGENT_BYPASS"):
+    if s.status not in (STATUS_READY, STATUS_URGENT):
         content =  Titled(
             "Nurse View",
             Div("Case still in intake.", cls="alert alert-warning")
@@ -364,13 +358,14 @@ def nurse_view(request, sid: str):
             chat_window(s.messages),
             nurse_form(sid)
         )
-    return layout(request, content)
+    return layout(request, content, page_title)
 
 
 @rt("/nurse/{sid}/send")
 @login_required
 def nurse_send(request, sid : str, message: str):
-    s = sessions[sid]
+    require_role(request, "nurse")
+    s = get_session_or_404(sessions, sid)
 
     s.messages.append(
         Message(
@@ -381,7 +376,7 @@ def nurse_send(request, sid : str, message: str):
         )
     )
 
-    s.status = "CLOSED"
+    s.status = STATUS_CLOSED 
 
     return chat_window(s.messages)
 
