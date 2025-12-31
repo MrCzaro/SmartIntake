@@ -1,7 +1,24 @@
 from fasthtml.common import *
 from monsterui.all import *
+from typing import Any
 
-def beneficiary_form(sid: str, intake_complete: bool):
+
+def beneficiary_form(sid: str, intake_complete: bool) -> Any:
+    """
+    Render the beneficiary message input form.
+    
+    Sends a chat message to the backend using HTMX and updates
+    the chat window with the server-rendered response.
+    
+    
+    Args:
+        sid (str): Chat session ID.
+        intake_complete (bool) : Whether intake has been completed.
+    
+    Returns:
+        Any: FastHTML Form component.
+    """
+
     return Form( 
         Input(type="hidden", name="sid", value=sid),
         Input(
@@ -15,7 +32,22 @@ def beneficiary_form(sid: str, intake_complete: bool):
         hx_swap="outerHTML"
     )
 
-def beneficiary_controls(sid: str, intake_complete: bool):
+
+def beneficiary_controls(sid: str, intake_complete: bool) -> Any:
+    """
+    Render intake control actions for the beneficiary.
+    
+    Displays either:
+    - A button to complete intake and notify the nurse, or
+    - An informational message once intake is complete.
+    
+    Args:
+        sid (str): Chat session ID.
+        intake_complete (bool) : Whether intake is finished.
+        
+    Returns:
+        Any: FastHTML Form component.
+    """
     if intake_complete:
         return Div(
             "Intake completed. You may continue messaging.",
@@ -32,7 +64,19 @@ def beneficiary_controls(sid: str, intake_complete: bool):
         hx_swap="outerHTML"
     )
 
-def nurse_form(sid: str):
+
+def nurse_form(sid: str) -> Any:
+    """
+    Render the nurse reply form for an active chat session.
+    
+    Sends a nurse response and updates the chat window using HTMX.
+    
+    Args:
+        sid (str): Chat session ID.
+        
+    Returns:
+        Any: FastHTML Form component.
+    """
     return Form(
         Input(type="hidden", name="sid", value=sid),
         Input(name="message", placeholder="Reply to beneficiary...", cls="input input-bordered w-full"),
@@ -42,11 +86,17 @@ def nurse_form(sid: str):
         hx_swap="outerHTML"
     )
 
-def login_card(error_message: str|None = None, prefill_email: str = ""):
+def login_card(error_message: str | None = None, prefill_email: str = "") -> Any:
     """
-    Returns a login card form.
-        error_message: Optional error message to display.
-        prefill_email: Optional email to prefill the form.
+    Render the login form card.
+
+    Args: 
+        error_message (str | None): Optional error message to display.
+        prefill_email (str) : Optional email to prefill the form.
+
+    
+    Returns:
+        Any: FastHTML Card component.
     """
     return Card(
         CardHeader(H3("Login")),
@@ -68,7 +118,7 @@ def login_card(error_message: str|None = None, prefill_email: str = ""):
                 Div(
                     Button(
                         "Login",
-                        cls="ButtonT.primary + rounded-lg py-2 px-4 md:py-3 md:px-5 text-sm md:text-base",
+                        cls=ButtonT.primary + " rounded-lg py-2 px-4 md:py-3 md:px-5 text-sm md:text-base",
                         type="submit"
                         ),
                         cls="mt-4"
@@ -81,7 +131,20 @@ def login_card(error_message: str|None = None, prefill_email: str = ""):
     )
 
 
-def signup_card(error_message: str | None = None, prefill_email: str =""):
+def signup_card(error_message: str | None = None, prefill_email: str = "") -> Any:
+    """
+    Render the signup form card.
+
+    Allows users to register and select their role.
+
+    Args:
+        error_message (str | None): Optional error message to dispaly.
+        prefill_email (str) : Email value to prefill the form input.
+
+    Returns: 
+        Any: FastHTML Card component.
+    """
+    
     return Card(
         CardHeader(H3("Create Account")),
         CardBody(
@@ -116,7 +179,7 @@ def signup_card(error_message: str | None = None, prefill_email: str =""):
                     cls="mt-2"
                 ),
                 Div(
-                    Button("Sign Up", cls=ButtonT.primary + " mt-4"),
+                    Button("Sign Up", cls=ButtonT.primary + " rounded-lg py-2 px-4 md:py-3 md:px-5 text-sm md:text-base"),
                 ),
                 action="/signup",
                 method="post"
