@@ -1,6 +1,6 @@
 import bcrypt
 import sqlite3
-from typing import Dict, TypeVar
+from typing import Dict, TypeVar, Optional
 from functools import wraps
 from inspect import iscoroutinefunction
 from fasthtml.common import Redirect, HTTPException
@@ -106,7 +106,7 @@ def get_session_or_404(sessions: Dict[str, TSession], sid: str) -> TSession:
     return session
 
 
-def  require_role(request: Request, role:str) -> None:
+def  require_role(request: Request, role:str) -> Optional[Redirect]:
     """
     Ensure the current user has the required role.
     
@@ -117,7 +117,8 @@ def  require_role(request: Request, role:str) -> None:
         Redirect: Redirects to home if role is not authorized.
     """
     if request.session.get("role") != role:
-        raise Redirect("/")
+        return Redirect("/")
+    return None
 
 
 

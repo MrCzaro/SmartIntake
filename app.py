@@ -6,7 +6,7 @@ from uuid import uuid4
 from datetime import datetime
 from starlette.middleware.sessions import SessionMiddleware
 from forms import nurse_form, beneficiary_form, beneficiary_controls
-from helpers import hash_password, verify_password, login_required, get_session_or_404, require_role, init_db
+from helpers import hash_password, verify_password, login_required, get_session_or_404, require_role, init_db, get_db
 from forms import login_card, signup_card
 
 
@@ -67,6 +67,7 @@ STATUS_INTAKE = "INTAKE_IN_PROGRESS"
 STATUS_READY = "READY_FOR_REVIEW"
 STATUS_URGENT = "URGENT_BYPASS"
 STATUS_CLOSED = "CLOSED"
+STATUS_VIEWING = "NURSE_VIEWING"
 
 
 def is_urgent(text: str) -> bool:
@@ -139,11 +140,14 @@ def chat_bubble(msg: Message):
         cls=f"chat {align}"
     )
 
-def chat_window(messages: list[Message]):
+def chat_window(messages: list[Message], sid: str):
     return Div(
         *[chat_bubble(m) for m in messages],
         id="chat-window",
-        cls="flex flex-col gap-2"
+        cls="flex flex-col gap-2",
+        hx_get=f"/chat/{sid}/poll",
+        hx_trigger="every 2s",
+        hx_swap="outerHTML"
     )
 
 
@@ -255,29 +259,39 @@ def start(request):
     )
     return Redirect(f"/beneficiary/{sid}")
 
+### Chat Route
+@rt("/chat/{sid}/poll")
+@login_required
+def poll_chat(request, sid: str):
+    s = get_session_or_404(sessions, sid)
+    return chat_window(s.messages, sid)
+
 
 ### Beneficiary Part
 
 @rt("/beneficiary/{sid}")
 @login_required
-def beneficiary_view(request, sid: str, message: str):
-    require_role(request, "beneficiary")
+def beneficiary_view(request, sid: str):
+    guard = require_role(request, "beneficiary")
+    if guard: return guard
+
     s = get_session_or_404(sessions, sid)
-    page_title = "Beneficiary Chat - MedAIChat"
+    
     content = Titled(
         "Chat with Care Team", 
-        status_badge(s.status),
-        chat_window(s.messages),
+        chat_window(s.messages, sid),
         beneficiary_form(sid, s.intake_complete),
         beneficiary_controls(sid, s.intake_complete)
     )
-    return layout(request, content, page_title)
+
+    return layout(request, content, page_title = "Beneficiary Chat - MedAIChat")
 
 
 @rt("/beneficiary/{sid}/send")
 @login_required
 def beneficiary_send(request, sid: str, message: str):
-    require_role(request, "beneficiary")
+    guard = require_role(request, "beneficiary")
+    if guard: return guard
     s = get_session_or_404(sessions, sid)
 
     phase = "post_intake" if s.intake_complete else "intake"
@@ -306,7 +320,8 @@ def beneficiary_send(request, sid: str, message: str):
 @rt("/beneficiary/{sid}/complete")
 @login_required
 def complete_intake(request, sid: str):
-    require_role(request, "beneficiary")
+    guard = require_role(request, "beneficiary")
+    if guard: return guard
     s = get_session_or_404(sessions, sid)
     s.intake_complete = True
     s.status = STATUS_READY 
@@ -316,55 +331,46 @@ def complete_intake(request, sid: str):
 @rt("/nurse")
 @login_required
 def nurse_dashboard(request):
-    require_role(request, "nurse")
-    page_title = "Nurse Dashboard - MedAIChat"
+    guard = require_role(request, "nurse")
+    if guard: return guard
+    
     ready = [
         s for s in sessions.values() if s.status in (STATUS_READY, STATUS_URGENT)
     ]
     
-    if not ready:
-        content =  Titled(
-                "Nurse Dashboard",
-                Div("No cases ready for review.", cls="alert alert-info")
-            )
-    else:
-        content = Titled(
-            "Nurse Dashboard",
-            Div(
-                *[nurse_case_card(s) for s in ready],
-                cls="grid gap-4"
-            )
-        )
-    return layout(request, content, page_title)
+    content = (
+        Div("No cases ready.", cls="alert alert-info")
+        if not ready
+        else Div(*[nurse_case_card(s) for s in ready], cls="grid gap-4"))
+
+    return layout(request, Titled("Nurse Dashboard", content), page_title = "Nurse Dashboard - MedAIChat")
 
 
 @rt("/nurse/{sid}")
 @login_required
 def nurse_view(request, sid: str):
-    require_role(request, "nurse")
-    page_title = "Nurse Review - MedAIChat"
+    guard = require_role(request, "nurse")
+    if guard: return guard
     s = get_session_or_404(sessions, sid)
 
-    if s.status not in (STATUS_READY, STATUS_URGENT):
-        content =  Titled(
-            "Nurse View",
-            Div("Case still in intake.", cls="alert alert-warning")
-        )
-    
-    else:
-        content = Titled(
-            "Nurse Review",
-            status_badge(s.status),
-            chat_window(s.messages),
-            nurse_form(sid)
-        )
-    return layout(request, content, page_title)
+    if s.status in (STATUS_READY, STATUS_URGENT):
+        s.status = STATUS_VIEWING
+
+    content = Titled(
+        "Nurse Review",
+        status_badge(s.status),
+        chat_window(s.messages, sid),
+        nurse_form(sid)
+    )
+    return layout(request, content, page_title  = "Nurse Review - MedAIChat")
 
 
 @rt("/nurse/{sid}/send")
 @login_required
 def nurse_send(request, sid : str, message: str):
-    require_role(request, "nurse")
+    guard = require_role(request, "nurse")
+    if guard: return guard
+
     s = get_session_or_404(sessions, sid)
 
     s.messages.append(
@@ -376,7 +382,7 @@ def nurse_send(request, sid : str, message: str):
         )
     )
 
-    s.status = STATUS_CLOSED 
+    s.status = STATUS_VIEWING 
 
     return chat_window(s.messages)
 
