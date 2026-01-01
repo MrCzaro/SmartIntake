@@ -15,7 +15,7 @@ from forms import login_card, signup_card
 init_db()
 
 # -- App setup ---
-hdrs = Theme.blue.headers()
+hdrs = Theme.green.headers()
 app = FastHTML(hdrs=hdrs, static_dir="static")
 app.add_middleware(SessionMiddleware, secret_key="secret-session-key")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -289,11 +289,18 @@ def beneficiary_view(request, sid: str):
 
 @rt("/beneficiary/{sid}/send")
 @login_required
-def beneficiary_send(request, sid: str, message: str):
+async def beneficiary_send(request, sid: str):
     guard = require_role(request, "beneficiary")
     if guard: return guard
+
     s = get_session_or_404(sessions, sid)
 
+    form = await request.form()
+    message = form.get("message", "").strip()
+
+    if not message:
+        return chat_window(s.messages, sid)
+    
     phase = "post_intake" if s.intake_complete else "intake"
 
     s.messages.append(Message(role="beneficiary", content=message, timestamp=datetime.now(), phase=phase))
@@ -315,16 +322,18 @@ def beneficiary_send(request, sid: str, message: str):
                 phase="system"
             )
         )
-    return chat_window(s.messages)
+    return chat_window(s.messages, sid)
 
 @rt("/beneficiary/{sid}/complete")
 @login_required
 def complete_intake(request, sid: str):
     guard = require_role(request, "beneficiary")
     if guard: return guard
+
     s = get_session_or_404(sessions, sid)
     s.intake_complete = True
     s.status = STATUS_READY 
+
     return Redirect(f"/beneficiary/{sid}")
 
 ###  Nurse Part 
@@ -351,10 +360,9 @@ def nurse_dashboard(request):
 def nurse_view(request, sid: str):
     guard = require_role(request, "nurse")
     if guard: return guard
-    s = get_session_or_404(sessions, sid)
 
-    if s.status in (STATUS_READY, STATUS_URGENT):
-        s.status = STATUS_VIEWING
+    s = get_session_or_404(sessions, sid)
+    s.status = STATUS_VIEWING
 
     content = Titled(
         "Nurse Review",
@@ -367,12 +375,18 @@ def nurse_view(request, sid: str):
 
 @rt("/nurse/{sid}/send")
 @login_required
-def nurse_send(request, sid : str, message: str):
+async def nurse_send(request, sid : str):
     guard = require_role(request, "nurse")
     if guard: return guard
 
     s = get_session_or_404(sessions, sid)
 
+    form = await request.form()
+    message = form.get("message", "").strip()
+
+    if not message:
+        return chat_window(s.messages, sid)
+    
     s.messages.append(
         Message(
             role="nurse",
@@ -384,6 +398,6 @@ def nurse_send(request, sid : str, message: str):
 
     s.status = STATUS_VIEWING 
 
-    return chat_window(s.messages)
+    return chat_window(s.messages, sid)
 
 serve()
