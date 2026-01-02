@@ -277,9 +277,19 @@ def beneficiary_view(request, sid: str):
 
     s = get_session_or_404(sessions, sid)
     
+    typing_indicator = (
+        Span(
+            "Nurse is reviewing your case...",
+            cls="animate-pulse text-sm text-grey-500 mt-2"
+        )
+        if s.status == STATUS_VIEWING
+        else None
+    )
+
     content = Titled(
         "Chat with Care Team", 
         chat_window(s.messages, sid),
+        typing_indicator,
         beneficiary_form(sid, s.intake_complete),
         beneficiary_controls(sid, s.intake_complete)
     )
@@ -347,11 +357,19 @@ def nurse_dashboard(request):
         s for s in sessions.values() if s.status in (STATUS_READY, STATUS_URGENT)
     ]
     
-    content = (
+    cases = (
         Div("No cases ready.", cls="alert alert-info")
         if not ready
         else Div(*[nurse_case_card(s) for s in ready], cls="grid gap-4"))
+    
 
+    content = Div(
+        cases,
+        hx_get="/nurse",
+        hx_trigger="every 3s",
+        hx_swap="outerHTML"
+    )
+    
     return layout(request, Titled("Nurse Dashboard", content), page_title = "Nurse Dashboard - MedAIChat")
 
 
