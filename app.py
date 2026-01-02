@@ -15,7 +15,8 @@ from forms import login_card, signup_card
 init_db()
 
 # -- App setup ---
-hdrs = Theme.green.headers()
+hdrs = Theme.blue.headers()
+hdrs.append(Script(src="https://unpkg.com/htmx.org@1.9.12"))
 app = FastHTML(hdrs=hdrs, static_dir="static")
 app.add_middleware(SessionMiddleware, secret_key="secret-session-key")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -266,6 +267,22 @@ def poll_chat(request, sid: str):
     s = get_session_or_404(sessions, sid)
     return chat_window(s.messages, sid)
 
+@rt("/nurse/poll")
+@login_required
+def nurse_poll(request):
+    guard = require_role(request, "nurse")
+    if guard: return guard
+
+    ready = [s for s in sessions.values() if s.status in (STATUS_READY, STATUS_URGENT)]
+
+    cases = (
+        Div("No cases ready.", cls="alert alert-info")
+        if not ready
+        else Div(*[nurse_case_card(s) for s in ready], cls="grid gap-4")
+    )
+    return cases
+
+
 
 ### Beneficiary Part
 
@@ -280,7 +297,7 @@ def beneficiary_view(request, sid: str):
     typing_indicator = (
         Span(
             "Nurse is reviewing your case...",
-            cls="animate-pulse text-sm text-grey-500 mt-2"
+            cls="animate-pulse text-sm text-gray-500 mt-2"
         )
         if s.status == STATUS_VIEWING
         else None
@@ -344,7 +361,17 @@ def complete_intake(request, sid: str):
     s.intake_complete = True
     s.status = STATUS_READY 
 
-    return Redirect(f"/beneficiary/{sid}")
+    # Return the updated page fragment for HTMX to swap into #content
+
+    content = Titled(
+        "Chat with Care Team",
+        chat_window(s.messages, sid),
+        Span("Intake completed - a nurse will review your case.", cls = "alert alert-info mt-4"),
+        beneficiary_form(sid, s.intake_complete),
+        beneficiary_controls(sid, s.intake_complete)  
+    )
+
+    return content
 
 ###  Nurse Part 
 @rt("/nurse")
@@ -363,14 +390,20 @@ def nurse_dashboard(request):
         else Div(*[nurse_case_card(s) for s in ready], cls="grid gap-4"))
     
 
-    content = Div(
+    pollable_cases = Div(
         cases,
-        hx_get="/nurse",
+        id="nurse-cases",
+        hx_get="/nurse/poll",
         hx_trigger="every 3s",
         hx_swap="outerHTML"
     )
+
+    content = Titled(
+        "Nurse Dashboard",
+        pollable_cases
+    )
     
-    return layout(request, Titled("Nurse Dashboard", content), page_title = "Nurse Dashboard - MedAIChat")
+    return layout(request, content, page_title = "Nurse Dashboard - MedAIChat")
 
 
 @rt("/nurse/{sid}")

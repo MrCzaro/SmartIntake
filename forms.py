@@ -26,10 +26,11 @@ def beneficiary_form(sid: str, intake_complete: bool) -> Any:
             placeholder="Type your message...",
             cls="input input-bordered w-full"
         ),
-        Button("Send", cls="btn btn-primary mt-2"),
+        Button("Send", cls="btn btn-primary mt-2", type="submit"),
         hx_post=f"/beneficiary/{sid}/send",
         hx_target="#chat-window",
-        hx_swap="outerHTML"
+        hx_swap="outerHTML",
+        method="post"
     )
 
 
@@ -57,11 +58,13 @@ def beneficiary_controls(sid: str, intake_complete: bool) -> Any:
     return Form(
         Button(
             "Finish intake and send to Nurse",
-            cls="btn btn-success mt-4"
+            cls="btn btn-success mt-4",
+            type="submit"
         ),
         hx_post=f"/beneficiary/{sid}/complete",
-        hx_target="body",
-        hx_swap="outerHTML"
+        hx_target="#content",
+        hx_swap="innerHTML",
+        method="post"
     )
 
 
@@ -80,11 +83,13 @@ def nurse_form(sid: str) -> Any:
     return Form(
         Input(type="hidden", name="sid", value=sid),
         Input(name="message", placeholder="Reply to beneficiary...", cls="input input-bordered w-full"),
-        Button("Send", cls="btn btn-primary mt-2"),
+        Button("Send", cls="btn btn-primary mt-2", type="submit"),
         hx_post=f"/nurse/{sid}/send",
         hx_target="#chat-window",
-        hx_swap="outerHTML"
+        hx_swap="outerHTML",
+        method="post"
     )
+
 
 def login_card(error_message: str | None = None, prefill_email: str = "") -> Any:
     """
