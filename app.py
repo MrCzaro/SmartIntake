@@ -98,17 +98,15 @@ def layout(request, content, page_title="MedAiChat"):
         cls="flex justify-between bg-blue-600 px-4 py-2"
     )
     return Html(
-        Head(
-            *hdrs,
-            Title(page_title)
-        ),
+        Title(page_title),
         Div(
             Header(nav),
             Div(Container(content, id="content", cls="mt-10"), cls="flex-1"),
             Footer("© 2025 MedAIChat", cls="bg-blue-600 text-white p-4"),
             cls="min-h-screen flex flex-col"
-        )
+            )
     )
+
 
 def status_badge(status: str):
     color = {
@@ -380,18 +378,18 @@ def nurse_dashboard(request):
     guard = require_role(request, "nurse")
     if guard: return guard
     
-    ready = [
-        s for s in sessions.values() if s.status in (STATUS_READY, STATUS_URGENT)
-    ]
+    # ready = [
+    #     s for s in sessions.values() if s.status in (STATUS_READY, STATUS_URGENT)
+    # ]
     
-    cases = (
-        Div("No cases ready.", cls="alert alert-info")
-        if not ready
-        else Div(*[nurse_case_card(s) for s in ready], cls="grid gap-4"))
+    # cases = (
+    #     Div("No cases ready.", cls="alert alert-info")
+    #     if not ready
+    #     else Div(*[nurse_case_card(s) for s in ready], cls="grid gap-4"))
     
 
     pollable_cases = Div(
-        cases,
+        #cases,
         id="nurse-cases",
         hx_get="/nurse/poll",
         hx_trigger="every 3s",
