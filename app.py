@@ -27,15 +27,29 @@ class Message:
     role : str
     content : str
     timestamp :  datetime 
-    phase : str # intake | post_intake
+    phase : str
+
+@dataclass
+class IntakeAnswer:
+    question_id : str
+    question : str
+    answer : str
+    timestamp : datetime
+
+@dataclass
+class IntakeState:
+    current_index : int = 0
+    answers : list[IntakeAnswer] = field(default_factory=list)
+    completed : bool = False
 
 @dataclass
 class ChatSession:
     session_id : str
-    status : str # NEW | INTAKE
+    status : str 
     messages: list[Message] = field(default_factory=list)
     intake_complete: bool = False
     urgent : bool = False
+    intake : IntakeState = field(default_factory=IntakeState)
 
 sessions : dict[str, ChatSession] = {}
 
@@ -55,6 +69,18 @@ def nurse_case_card(s: ChatSession):
 
 
 # Globals
+INTAKE_SCHEMA = [
+    {"id" : "chief_complaint", "q" : "What is your main issue today?"},
+    {"id" : "onest", "q" : "When did is start?"},
+    {"id" : "severity", "q" : "How severe is it from 1-10?"},
+    {"id" : "location", "q" : "Where is the problem located?"},
+    {"id" : "modifiers", "q" : "What makes it better or worse?"},
+    {"id" : "fever", "q" : "Have you had a fever?"},
+    {"id" : "q", "medications" : "What medications are you currently taking?"},
+    {"id" : "conditions", "q" : "Any chronic conditions?"},
+    {"id" : "prior_contact", "q" : "Have you contacted us about this before?"}
+]
+
 URGENT_KEYWORDS = [
     "chest pain",
     "shortness of breath",
@@ -169,6 +195,13 @@ def nurse_chat_fragment(sid: str, s:ChatSession):
         id="chat-fragment"
     )
 
+def intake_finished(s: ChatSession):
+    return s.intake.current_index >= len(INTAKE_SCHEMA)
+
+def current_intake_question(s: ChatSession) -> str | None:
+    if intake_finished(s): return None
+    return INTAKE_SCHEMA[s.intake.current_index]["q"]
+
 # --- Routes ---
 @rt("/favicon.ico")
 def favicon(request):
@@ -270,10 +303,23 @@ def index(request):
 @login_required
 def start(request):
     sid = str(uuid4())
-    sessions[sid] = ChatSession(
+    s = ChatSession(
         session_id=sid,
         status=STATUS_INTAKE
     )
+
+    first_question = INTAKE_SCHEMA[0]["q"]
+    s.messages.append(
+        Message(
+            role="assistant",
+            content=first_question,
+            timestamp=datetime.now(),
+            phase="intake"
+        )
+    )
+
+    sessions[sid] = s
+
     return Redirect(f"/beneficiary/{sid}")
 
 ### Chat Route
@@ -317,6 +363,17 @@ def beneficiary_view(request, sid: str):
     if guard: return guard
 
     s = get_session_or_404(sessions, sid)
+
+    # Start intake if empty
+    if not s.messages and not s.intake.completed:
+        s.messages.append(
+            Message(
+                role="assistant",
+                content=current_intake_question(s),
+                timestamp=datetime.now(),
+                phase="intake"
+            )
+        )
     
     typing_indicator = (
         Span(
@@ -348,29 +405,73 @@ async def beneficiary_send(request, sid: str):
     message = form.get("message", "").strip()
 
     if not message:
-        return chat_window(s.messages, sid)
-    
-    phase = "post_intake" if s.intake_complete else "intake"
+        return beneficiary_chat_fragment(sid, s)
 
-    s.messages.append(Message(role="beneficiary", content=message, timestamp=datetime.now(), phase=phase))
+    s.messages.append(
+        Message(
+            role="beneficiary", 
+            content=message, 
+            timestamp=datetime.now(),
+            phase = "post_intake" if s.intake_complete else "intake"
+        )
+    )
     
-    # URGENT BYPASS
-    if is_urgent(message) and s.status != STATUS_URGENT:
-        s.urgent = True
-        s.intake_complete = True
-        s.status = STATUS_URGENT
-
-        s.messages.append(
-            Message(
-                role="assistant",
-                content=(
-                    "Your message suggests an urgent concern. "
-                    "A nurse has been notified immediately."
-                ),
-                timestamp=datetime.now(),
-                phase="system"
+    if not s.intake.completed:
+        q = INTAKE_SCHEMA[s.intake.current_index]
+        
+        s.intake.answers.append(
+            IntakeAnswer(
+                question_id=q["id"],
+                question=q["q"],
+                answer=message,
+                timestamp=datetime.now()
             )
         )
+        # URGENT BYPASS
+        if is_urgent(message):
+            s.urgent = True
+            s.intake.completed = True
+            s.intake_complete = True
+            s.status = STATUS_URGENT
+
+            s.messages.append(
+                Message(
+                    role="assistant",
+                    content=(
+                        "Your message suggests a potentially  urgent condition. "
+                        "A nurse has been notified immediately."
+                    ),
+                    timestamp=datetime.now(),
+                    phase="system"
+                )
+            )
+            return beneficiary_chat_fragment(sid, s)
+        
+        s.intake.current_index += 1
+
+        if intake_finished(s):
+            s.intake.completed = True
+            s.intake_complete = True
+            s.status = STATUS_READY
+
+            s.messages.append(
+                Message(
+                    role="assistant",
+                    content="Thank you. Your intake is complete. A nurse will review your information shortly. You may add more details if needed.",
+                    timestamp=datetime.now(),
+                    phase="system"
+                )
+            )
+        
+        else:
+            s.messages.append(
+                role="assistant",
+                content=current_intake_question(s),
+                timestamp=datetime.now(),
+                phase="intake"
+            )
+        return beneficiary_chat_fragment(sid, s)
+    
     return beneficiary_chat_fragment(sid, s)
 
 @rt("/beneficiary/{sid}/complete")
