@@ -5,9 +5,9 @@ from starlette.staticfiles import StaticFiles
 from uuid import uuid4
 from datetime import datetime
 from starlette.middleware.sessions import SessionMiddleware
-from forms import nurse_form, beneficiary_form, beneficiary_controls
+from forms import nurse_form, beneficiary_form, beneficiary_controls, login_card, signup_card
 from helpers import hash_password, verify_password, login_required, get_session_or_404, require_role, init_db, get_db
-from forms import login_card, signup_card
+
 
 
 
@@ -98,12 +98,17 @@ def layout(request, content, page_title="MedAiChat"):
         cls="flex justify-between bg-blue-600 px-4 py-2"
     )
     return Html(
-        Title(page_title),
-        Div(
-            Header(nav),
-            Div(Container(content, id="content", cls="mt-10"), cls="flex-1"),
-            Footer("© 2025 MedAIChat", cls="bg-blue-600 text-white p-4"),
-            cls="min-h-screen flex flex-col"
+        Head(
+            *hdrs,
+            Title(page_title)
+            ),
+            Body(
+                Div(
+                    Header(nav),
+                    Div(Container(content, id="content", cls="mt-10"), cls="flex-1"),
+                    Footer("© 2025 MedAIChat", cls="bg-blue-600 text-white p-4"),
+                    cls="min-h-screen flex flex-col"
+                )
             )
     )
 
@@ -149,7 +154,20 @@ def chat_window(messages: list[Message], sid: str):
         hx_swap="outerHTML"
     )
 
+def beneficiary_chat_fragment(sid: str, s:ChatSession):
+    return Div(
+        chat_window(s.messages, sid),
+        beneficiary_form(sid),
+        beneficiary_controls(sid, s.intake_complete),
+        id="chat-fragment"
+    )
 
+def nurse_chat_fragment(sid: str, s:ChatSession):
+    return Div(
+        chat_window(s.messages, sid),
+        nurse_form(sid),
+        id="chat-fragment"
+    )
 
 # --- Routes ---
 @rt("/favicon.ico")
@@ -278,7 +296,15 @@ def nurse_poll(request):
         if not ready
         else Div(*[nurse_case_card(s) for s in ready], cls="grid gap-4")
     )
-    return cases
+    
+    content = Div(
+        cases,
+        id="nurse-cases",
+        hx_get="/nurse/poll",
+        hx_trigger="every 3s",
+        hx_swap="outerHTML"
+    )
+    return content
 
 
 
@@ -303,10 +329,8 @@ def beneficiary_view(request, sid: str):
 
     content = Titled(
         "Chat with Care Team", 
-        chat_window(s.messages, sid),
         typing_indicator,
-        beneficiary_form(sid, s.intake_complete),
-        beneficiary_controls(sid, s.intake_complete)
+        beneficiary_chat_fragment(sid,s)
     )
 
     return layout(request, content, page_title = "Beneficiary Chat - MedAIChat")
@@ -347,7 +371,7 @@ async def beneficiary_send(request, sid: str):
                 phase="system"
             )
         )
-    return chat_window(s.messages, sid)
+    return beneficiary_chat_fragment(sid, s)
 
 @rt("/beneficiary/{sid}/complete")
 @login_required
@@ -359,17 +383,7 @@ def complete_intake(request, sid: str):
     s.intake_complete = True
     s.status = STATUS_READY 
 
-    # Return the updated page fragment for HTMX to swap into #content
-
-    content = Titled(
-        "Chat with Care Team",
-        chat_window(s.messages, sid),
-        Span("Intake completed - a nurse will review your case.", cls = "alert alert-info mt-4"),
-        beneficiary_form(sid, s.intake_complete),
-        beneficiary_controls(sid, s.intake_complete)  
-    )
-
-    return content
+    return beneficiary_chat_fragment(sid, s)
 
 ###  Nurse Part 
 @rt("/nurse")
@@ -378,27 +392,16 @@ def nurse_dashboard(request):
     guard = require_role(request, "nurse")
     if guard: return guard
     
-    # ready = [
-    #     s for s in sessions.values() if s.status in (STATUS_READY, STATUS_URGENT)
-    # ]
-    
-    # cases = (
-    #     Div("No cases ready.", cls="alert alert-info")
-    #     if not ready
-    #     else Div(*[nurse_case_card(s) for s in ready], cls="grid gap-4"))
-    
-
-    pollable_cases = Div(
-        #cases,
-        id="nurse-cases",
-        hx_get="/nurse/poll",
-        hx_trigger="every 3s",
-        hx_swap="outerHTML"
-    )
+   
 
     content = Titled(
         "Nurse Dashboard",
-        pollable_cases
+        Div(
+            id="nurse-cases",
+            hx_get="/nurse/poll",
+            hx_trigger="load",
+            hx_swap="outerHTML"
+        )
     )
     
     return layout(request, content, page_title = "Nurse Dashboard - MedAIChat")
@@ -416,8 +419,7 @@ def nurse_view(request, sid: str):
     content = Titled(
         "Nurse Review",
         status_badge(s.status),
-        chat_window(s.messages, sid),
-        nurse_form(sid)
+        nurse_chat_fragment(sid, s)
     )
     return layout(request, content, page_title  = "Nurse Review - MedAIChat")
 
@@ -447,6 +449,6 @@ async def nurse_send(request, sid : str):
 
     s.status = STATUS_VIEWING 
 
-    return chat_window(s.messages, sid)
+    return nurse_chat_fragment(sid, s)
 
 serve()

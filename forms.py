@@ -3,7 +3,10 @@ from monsterui.all import *
 from typing import Any
 
 
-def beneficiary_form(sid: str, intake_complete: bool) -> Any:
+
+
+
+def beneficiary_form(sid: str) -> Any:
     """
     Render the beneficiary message input form.
     
@@ -13,7 +16,6 @@ def beneficiary_form(sid: str, intake_complete: bool) -> Any:
     
     Args:
         sid (str): Chat session ID.
-        intake_complete (bool) : Whether intake has been completed.
     
     Returns:
         Any: FastHTML Form component.
@@ -28,7 +30,7 @@ def beneficiary_form(sid: str, intake_complete: bool) -> Any:
         ),
         Button("Send", cls="btn btn-primary mt-2", type="submit"),
         hx_post=f"/beneficiary/{sid}/send",
-        hx_target="#chat-window",
+        hx_target="#chat-fragment",
         hx_swap="outerHTML",
         method="post"
     )
@@ -62,8 +64,8 @@ def beneficiary_controls(sid: str, intake_complete: bool) -> Any:
             type="submit"
         ),
         hx_post=f"/beneficiary/{sid}/complete",
-        hx_target="#content",
-        hx_swap="innerHTML",
+        hx_target="#chat-fragment",
+        hx_swap="outerHTML",
         method="post"
     )
 
@@ -85,7 +87,7 @@ def nurse_form(sid: str) -> Any:
         Input(name="message", placeholder="Reply to beneficiary...", cls="input input-bordered w-full"),
         Button("Send", cls="btn btn-primary mt-2", type="submit"),
         hx_post=f"/nurse/{sid}/send",
-        hx_target="#chat-window",
+        hx_target="#chat-fragment",
         hx_swap="outerHTML",
         method="post"
     )
