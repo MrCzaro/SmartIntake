@@ -28,10 +28,11 @@ def beneficiary_form(sid: str) -> Any:
             placeholder="Type your message...",
             cls="input input-bordered w-full"
         ),
-        Button("Send", cls="btn btn-primary mt-2", type="submit"),
+        Button("Send", cls="btn btn-primary mt-2", type="submit", hx_disable_elt="this"),
         hx_post=f"/beneficiary/{sid}/send",
         hx_target="#chat-fragment",
         hx_swap="outerHTML",
+        hx_on="htmx:afterRequest: this.reset()",
         method="post"
     )
 

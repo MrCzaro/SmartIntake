@@ -76,7 +76,7 @@ INTAKE_SCHEMA = [
     {"id" : "location", "q" : "Where is the problem located?"},
     {"id" : "modifiers", "q" : "What makes it better or worse?"},
     {"id" : "fever", "q" : "Have you had a fever?"},
-    {"id" : "q", "medications" : "What medications are you currently taking?"},
+    {"id" : "medications", "q" : "What medications are you currently taking?"},
     {"id" : "conditions", "q" : "Any chronic conditions?"},
     {"id" : "prior_contact", "q" : "Have you contacted us about this before?"}
 ]
@@ -434,13 +434,11 @@ async def beneficiary_send(request, sid: str):
             s.intake_complete = True
             s.status = STATUS_URGENT
 
+            urgent_message = "Your message suggests a potentially  urgent condition. A nurse has been notified immediately."
             s.messages.append(
                 Message(
                     role="assistant",
-                    content=(
-                        "Your message suggests a potentially  urgent condition. "
-                        "A nurse has been notified immediately."
-                    ),
+                    content=urgent_message,
                     timestamp=datetime.now(),
                     phase="system"
                 )
@@ -453,11 +451,11 @@ async def beneficiary_send(request, sid: str):
             s.intake.completed = True
             s.intake_complete = True
             s.status = STATUS_READY
-
+            finished_message = "Thank you. Your intake is complete. A nurse will review your information shortly. You may add more details if needed."
             s.messages.append(
                 Message(
                     role="assistant",
-                    content="Thank you. Your intake is complete. A nurse will review your information shortly. You may add more details if needed.",
+                    content=finished_message,
                     timestamp=datetime.now(),
                     phase="system"
                 )
@@ -465,10 +463,13 @@ async def beneficiary_send(request, sid: str):
         
         else:
             s.messages.append(
-                role="assistant",
-                content=current_intake_question(s),
-                timestamp=datetime.now(),
-                phase="intake"
+                Message(
+                    role="assistant",
+                    content=current_intake_question(s),
+                    timestamp=datetime.now(),
+                    phase="intake"
+                )
+                
             )
         return beneficiary_chat_fragment(sid, s)
     
