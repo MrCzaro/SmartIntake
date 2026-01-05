@@ -1,8 +1,7 @@
 from fasthtml.common import *
 from monsterui.all import *
 from typing import Any
-
-
+from models import ChatSession, ChatState
 
 
 
@@ -30,45 +29,50 @@ def beneficiary_form(sid: str) -> Any:
         ),
         Button("Send", cls="btn btn-primary mt-2", type="submit", hx_disable_elt="this"),
         hx_post=f"/beneficiary/{sid}/send",
-        hx_target="#chat-fragment",
+        hx_target="#chat-window",
         hx_swap="outerHTML",
         hx_on="htmx:afterRequest: this.reset()",
         method="post"
     )
 
 
-def beneficiary_controls(sid: str, intake_complete: bool) -> Any:
+def beneficiary_controls(s: ChatSession) -> Any:
     """
-    Render intake control actions for the beneficiary.
-    
-    Displays either:
-    - A button to complete intake and notify the nurse, or
-    - An informational message once intake is complete.
-    
+    Render control/status information for the beneficiary
+    based on the current chat session state.
+
+    States:
+    - INTAKE: Intake still in progress
+    - WAITING_FOR_NURSE: Intake completed, awaiting nurse review
+    - NURSE_ACTIVE / URGENT: Nurse is engaged, free chat enabled
+
     Args:
-        sid (str): Chat session ID.
-        intake_complete (bool) : Whether intake is finished.
-        
+        s (ChatSession): The current chat session instance.
+
     Returns:
-        Any: FastHTML Form component.
+        Any: A FastHTML component representing the appropriate UI message.
     """
-    if intake_complete:
+
+    if s.state == ChatState.INTAKE:
         return Div(
-            "Intake completed. You may continue messaging.",
+            "Please answer all intake questions to continue.",
+            cls="alert alert-warning mt-4"
+        )
+    
+    if s.state == ChatState.WAITING_FOR_NURSE:
+        return Div(
+            "Your intake is complete. Waiting for a nurse...",
             cls="alert alert-info mt-4"
         )
     
-    return Form(
-        Button(
-            "Finish intake and send to Nurse",
-            cls="btn btn-success mt-4",
-            type="submit"
-        ),
-        hx_post=f"/beneficiary/{sid}/complete",
-        hx_target="#chat-fragment",
-        hx_swap="outerHTML",
-        method="post"
-    )
+    if s.state in (ChatState.NURSE_ACTIVE, ChatState.URGENT):
+        return Div(
+            "You may continue chatting with the nurse.",
+            cls = "alert alert-success mt-4"
+        )
+    
+    return Div()
+    
 
 
 def nurse_form(sid: str) -> Any:

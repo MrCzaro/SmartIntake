@@ -9,6 +9,9 @@ __pycache__/
 venv/
 env/
 
+# Vscode settings
+.vscode
+
 # Local utilities and history
 users.db
 _tmp_upload.jpg

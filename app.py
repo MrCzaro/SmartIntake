@@ -1,14 +1,12 @@
 from fasthtml.common import *
 from monsterui.all import *
-from dataclasses import dataclass, field
 from starlette.staticfiles import StaticFiles
 from uuid import uuid4
 from datetime import datetime
 from starlette.middleware.sessions import SessionMiddleware
 from forms import nurse_form, beneficiary_form, beneficiary_controls, login_card, signup_card
 from helpers import hash_password, verify_password, login_required, get_session_or_404, require_role, init_db, get_db
-
-
+from models import ChatSession, Message, ChatState, IntakeAnswer
 
 
 # Initialize DB on startup
@@ -22,42 +20,16 @@ app.add_middleware(SessionMiddleware, secret_key="secret-session-key")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 rt = app.route
 
-@dataclass
-class Message:
-    role : str
-    content : str
-    timestamp :  datetime 
-    phase : str
 
-@dataclass
-class IntakeAnswer:
-    question_id : str
-    question : str
-    answer : str
-    timestamp : datetime
-
-@dataclass
-class IntakeState:
-    current_index : int = 0
-    answers : list[IntakeAnswer] = field(default_factory=list)
-    completed : bool = False
-
-@dataclass
-class ChatSession:
-    session_id : str
-    status : str 
-    messages: list[Message] = field(default_factory=list)
-    intake_complete: bool = False
-    urgent : bool = False
-    intake : IntakeState = field(default_factory=IntakeState)
 
 sessions : dict[str, ChatSession] = {}
+
 
 def nurse_case_card(s: ChatSession):
     last_msg = s.messages[-1].content if s.messages else "No messages yet."
 
     return Div(
-        status_badge(s.status),
+        state_badge(s.state),
         Div(f"Session: {s.session_id}", cls="font-mono text-sm"),
         Div(f"Last message: {last_msg[:80]}"),
         A(
@@ -90,12 +62,6 @@ URGENT_KEYWORDS = [
     "stroke",
     "heart attack"
 ]
-STATUS_INTAKE = "INTAKE_IN_PROGRESS"
-STATUS_READY = "READY_FOR_REVIEW"
-STATUS_URGENT = "URGENT_BYPASS"
-STATUS_CLOSED = "CLOSED"
-STATUS_VIEWING = "NURSE_VIEWING"
-
 
 def is_urgent(text: str) -> bool:
     t = text.lower()
@@ -139,33 +105,53 @@ def layout(request, content, page_title="MedAiChat"):
     )
 
 
-def status_badge(status: str):
+def state_badge(state: ChatState):
     color = {
-        STATUS_INTAKE : "badge-warning",
-        STATUS_READY  : "badge-success",
-        STATUS_URGENT : "badge-error",
-        STATUS_CLOSED : "badge-neutral"
-    }.get(status, "badge-neutral")
+        ChatState.INTAKE : "badge-warning",
+        ChatState.WAITING_FOR_NURSE : "badge-info",
+        ChatState.NURSE_ACTIVE : "badge-success",
+        ChatState.URGENT : "badge-error",
+        ChatState.CLOSED : "badge-neutral"
+    }.get(state, "badge-neutral")
 
     return Div(
-        status.replace("_", " "),
+        state.value.replace("_", " "),
         cls=f"badge {color} mb-4"
     )
 
 def chat_bubble(msg: Message):
-    align = "chat-start" if msg.role == "beneficiary" else "chat-end"
+    align = {
+        "beneficiary": "chat-start",
+        "nurse": "chat-end",
+        "assistant": "chat-middle",
+    }.get(msg.role, "chat-start")
+
     color = {
-        "beneficiary" : "chat-bubble-neutral",
-        "nurse" : "chat-bubble-primary",
-        "assistant" : "chat-bubble-info",
+        "beneficiary": "chat-bubble-neutral",
+        "nurse": "chat-bubble-primary",
+        "assistant": "chat-bubble-info",
     }.get(msg.role, "chat-bubble-neutral")
 
-    phase_tag = ""
-    if msg.phase == "post_intake":
-        phase_tag = Span("POST-INTAKE", cls="badge badge-outline ml-2")
+    # System messages are special: centered + italic
+    if msg.phase == "system":
+        return Div(
+            Div(
+                msg.content,
+                cls="text-center text-sm text-gray-500 italic"
+            ),
+            cls="my-2"
+        )
 
     return Div(
-        Div(msg.role.capitalize(), phase_tag, cls="chat-header"),
+        Div(msg.role.capitalize(), cls="chat-header"),
+        Div(msg.content, cls=f"chat-bubble {color}"),
+        cls=f"chat {align}"
+    )
+
+    
+
+    return Div(
+        Div(msg.role.capitalize(), cls="chat-header"),
         Div(msg.content, cls=f"chat-bubble {color}"),
         cls=f"chat {align}"
     )
@@ -184,7 +170,7 @@ def beneficiary_chat_fragment(sid: str, s:ChatSession):
     return Div(
         chat_window(s.messages, sid),
         beneficiary_form(sid),
-        beneficiary_controls(sid, s.intake_complete),
+        beneficiary_controls(s),
         id="chat-fragment"
     )
 
@@ -201,6 +187,39 @@ def intake_finished(s: ChatSession):
 def current_intake_question(s: ChatSession) -> str | None:
     if intake_finished(s): return None
     return INTAKE_SCHEMA[s.intake.current_index]["q"]
+
+def system_message(s: ChatSession, text: str):
+    s.messages.append(
+        Message(
+            role="assistant",
+            content=text,
+            timestamp=datetime.now(),
+            phase="system"
+        )
+    )
+
+def complete_intake(s: ChatSession):
+    if s.state != ChatState.INTAKE:
+        return
+    s.state = ChatState.WAITING_FOR_NURSE
+    system_message(
+        s, 
+        "Thank you. Your intake is complete. A nurse will review your case shortly."
+    )
+
+def urgent_bypass(s: ChatSession):
+    s.state = ChatState.URGENT
+    system_message(
+        s,
+        "Your message suggests a potentially urgent condition. A nurse has been notified immediately."
+    )
+
+def nurse_joins(s: ChatSession):
+    if s.state not in (ChatState.WAITING_FOR_NURSE, ChatState.URGENT):
+        return
+    
+    s.state = ChatState.NURSE_ACTIVE
+    system_message(s, "A nurse has joined your case.")
 
 # --- Routes ---
 @rt("/favicon.ico")
@@ -304,8 +323,7 @@ def index(request):
 def start(request):
     sid = str(uuid4())
     s = ChatSession(
-        session_id=sid,
-        status=STATUS_INTAKE
+        session_id=sid
     )
 
     first_question = INTAKE_SCHEMA[0]["q"]
@@ -335,7 +353,7 @@ def nurse_poll(request):
     guard = require_role(request, "nurse")
     if guard: return guard
 
-    ready = [s for s in sessions.values() if s.status in (STATUS_READY, STATUS_URGENT)]
+    ready = [s for s in sessions.values() if s.state in (ChatState.WAITING_FOR_NURSE, ChatState.URGENT)]
 
     cases = (
         Div("No cases ready.", cls="alert alert-info")
@@ -364,23 +382,12 @@ def beneficiary_view(request, sid: str):
 
     s = get_session_or_404(sessions, sid)
 
-    # Start intake if empty
-    if not s.messages and not s.intake.completed:
-        s.messages.append(
-            Message(
-                role="assistant",
-                content=current_intake_question(s),
-                timestamp=datetime.now(),
-                phase="intake"
-            )
-        )
-    
     typing_indicator = (
         Span(
             "Nurse is reviewing your case...",
             cls="animate-pulse text-sm text-gray-500 mt-2"
         )
-        if s.status == STATUS_VIEWING
+        if s.state == ChatState.NURSE_ACTIVE
         else None
     )
 
@@ -412,11 +419,11 @@ async def beneficiary_send(request, sid: str):
             role="beneficiary", 
             content=message, 
             timestamp=datetime.now(),
-            phase = "post_intake" if s.intake_complete else "intake"
+            phase = "intake" if s.state == ChatState.INTAKE else "chat"
         )
     )
     
-    if not s.intake.completed:
+    if s.state == ChatState.INTAKE:
         q = INTAKE_SCHEMA[s.intake.current_index]
         
         s.intake.answers.append(
@@ -429,37 +436,14 @@ async def beneficiary_send(request, sid: str):
         )
         # URGENT BYPASS
         if is_urgent(message):
-            s.urgent = True
-            s.intake.completed = True
-            s.intake_complete = True
-            s.status = STATUS_URGENT
-
-            urgent_message = "Your message suggests a potentially  urgent condition. A nurse has been notified immediately."
-            s.messages.append(
-                Message(
-                    role="assistant",
-                    content=urgent_message,
-                    timestamp=datetime.now(),
-                    phase="system"
-                )
-            )
+            urgent_bypass(s)
             return beneficiary_chat_fragment(sid, s)
         
         s.intake.current_index += 1
 
         if intake_finished(s):
             s.intake.completed = True
-            s.intake_complete = True
-            s.status = STATUS_READY
-            finished_message = "Thank you. Your intake is complete. A nurse will review your information shortly. You may add more details if needed."
-            s.messages.append(
-                Message(
-                    role="assistant",
-                    content=finished_message,
-                    timestamp=datetime.now(),
-                    phase="system"
-                )
-            )
+            complete_intake(s)
         
         else:
             s.messages.append(
@@ -475,17 +459,7 @@ async def beneficiary_send(request, sid: str):
     
     return beneficiary_chat_fragment(sid, s)
 
-@rt("/beneficiary/{sid}/complete")
-@login_required
-def complete_intake(request, sid: str):
-    guard = require_role(request, "beneficiary")
-    if guard: return guard
 
-    s = get_session_or_404(sessions, sid)
-    s.intake_complete = True
-    s.status = STATUS_READY 
-
-    return beneficiary_chat_fragment(sid, s)
 
 ###  Nurse Part 
 @rt("/nurse")
@@ -493,15 +467,13 @@ def complete_intake(request, sid: str):
 def nurse_dashboard(request):
     guard = require_role(request, "nurse")
     if guard: return guard
-    
-   
 
     content = Titled(
         "Nurse Dashboard",
         Div(
             id="nurse-cases",
             hx_get="/nurse/poll",
-            hx_trigger="load",
+            hx_trigger="load, every 3s",
             hx_swap="outerHTML"
         )
     )
@@ -516,11 +488,11 @@ def nurse_view(request, sid: str):
     if guard: return guard
 
     s = get_session_or_404(sessions, sid)
-    s.status = STATUS_VIEWING
+    nurse_joins(s)
 
     content = Titled(
         "Nurse Review",
-        status_badge(s.status),
+        state_badge(s.state),
         nurse_chat_fragment(sid, s)
     )
     return layout(request, content, page_title  = "Nurse Review - MedAIChat")
@@ -538,18 +510,18 @@ async def nurse_send(request, sid : str):
     message = form.get("message", "").strip()
 
     if not message:
-        return chat_window(s.messages, sid)
+        return nurse_chat_fragment(sid, s)
     
     s.messages.append(
         Message(
             role="nurse",
             content=message,
             timestamp=datetime.now(),
-            phase="post_intake"
+            phase="chat"
         )
     )
 
-    s.status = STATUS_VIEWING 
+    nurse_joins(s)
 
     return nurse_chat_fragment(sid, s)
 

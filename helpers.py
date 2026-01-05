@@ -1,16 +1,11 @@
 import bcrypt
 import sqlite3
-from typing import Dict, TypeVar, Optional
+from typing import Dict, Optional
 from functools import wraps
 from inspect import iscoroutinefunction
 from fasthtml.common import Redirect, HTTPException
 from starlette.requests import Request
-
-
-
-# Generic type for chat sessions (import ChatSession where used)
-TSession = TypeVar("TSession")
-
+from models import ChatSession
 
 
 def hash_password(plain_password: str) -> str:
@@ -86,19 +81,19 @@ def init_db() -> None:
     db.close()
 
 
-def get_session_or_404(sessions: Dict[str, TSession], sid: str) -> TSession:
+def get_session_or_404(sessions: Dict[str, ChatSession], sid: str) -> ChatSession:
     """
     Retrieve a chat session by ID or raise a 404 error.
     
     Args:
-        sessions (dict[str, TSession]): In-memory session store.
+        sessions (dict[str, ChatSession]): In-memory session store.
         sid (str) : Session ID.
         
     Raises:
         HTTPEXception: 404 if session does not exist.
         
     Returns:
-        TSession: The requested chat session.
+        ChatSession: The requested chat session.
     """
     session = sessions.get(sid)
     if session is None: 
