@@ -24,13 +24,14 @@ def beneficiary_form(sid: str) -> Any:
         Input(type="hidden", name="sid", value=sid),
         Input(
             name="message",
+            id="chat-input",
             placeholder="Type your message...",
             cls="input input-bordered w-full"
         ),
         Button("Send", cls="btn btn-primary mt-2", type="submit", hx_disable_elt="this"),
         hx_post=f"/beneficiary/{sid}/send",
-        hx_target="#chat-fragment",
-        hx_swap="outerHTML",
+        hx_target="#chat-messages",
+        hx_swap="innerHTML",
         hx_on="htmx:afterRequest: this.reset()",
         method="post"
     )
@@ -89,11 +90,12 @@ def nurse_form(sid: str) -> Any:
     """
     return Form(
         Input(type="hidden", name="sid", value=sid),
-        Input(name="message", placeholder="Reply to beneficiary...", cls="input input-bordered w-full"),
-        Button("Send", cls="btn btn-primary mt-2", type="submit"),
+        Input(name="message", id="chat-input", placeholder="Reply to beneficiary...", cls="input input-bordered w-full"),
+        Button("Send", cls="btn btn-primary mt-2", type="submit", hx_disable_elt="this"),
         hx_post=f"/nurse/{sid}/send",
-        hx_target="#chat-fragment",
-        hx_swap="outerHTML",
+        hx_target="#chat-messages",
+        hx_swap="innerHTML",
+        hx_on="htmx:afterRequest: this.reset()",
         method="post"
     )
 

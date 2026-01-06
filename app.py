@@ -15,6 +15,22 @@ init_db()
 # -- App setup ---
 hdrs = Theme.blue.headers()
 hdrs.append(Script(src="https://unpkg.com/htmx.org@1.9.12"))
+hdrs.append(Script("""
+    document.addEventListener("htmx:afterSwap", function (e) {
+        // Auto-scroll chat window
+        const chat = document.getElementById("chat-window");
+        if (chat) {
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        // Auto-focus input if present
+        const input = document.getElementById("chat-input");
+        if (input) {
+            input.focus();
+        }
+    });
+    """
+))
 app = FastHTML(hdrs=hdrs, static_dir="static")
 app.add_middleware(SessionMiddleware, secret_key="secret-session-key")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -53,7 +69,7 @@ INTAKE_SCHEMA = [
     {"id" : "prior_contact", "q" : "Have you contacted us about this before?"}
 ]
 
-URGENT_KEYWORDS = [
+URGENT_KEYWORDS = [ ### Temp
     "chest pain",
     "shortness of breath",
     "can't breathe",
@@ -63,7 +79,7 @@ URGENT_KEYWORDS = [
     "heart attack"
 ]
 
-def is_urgent(text: str) -> bool:
+def is_urgent(text: str) -> bool: ### Temp
     t = text.lower()
     return any(keyword in t for keyword in URGENT_KEYWORDS)
 
@@ -153,12 +169,16 @@ def chat_bubble(msg: Message):
 
 def chat_window(messages: list[Message], sid: str):
     return Div(
-        *[chat_bubble(m) for m in messages],
+        Div(
+            *[chat_bubble(m) for m in messages],
+            id = "chat-messages"
+        ),
         id="chat-window",
-        cls="flex flex-col gap-2",
+        cls="flex flex-col gap-2 overflow-y-auto h-[60vh]",
         hx_get=f"/chat/{sid}/poll",
         hx_trigger="every 2s",
-        hx_swap="outerHTML"
+        hx_swap="innerHTML",
+        hx_target="#chat-messages"
     )
 
 def beneficiary_chat_fragment(sid: str, s:ChatSession):
@@ -202,7 +222,7 @@ def complete_intake(s: ChatSession):
         "Thank you. Your intake is complete. A nurse will review your case shortly."
     )
 
-def urgent_bypass(s: ChatSession):
+def urgent_bypass(s: ChatSession): ### Temp
     s.state = ChatState.URGENT
     system_message(
         s,
@@ -340,7 +360,10 @@ def start(request):
 @login_required
 def poll_chat(request, sid: str):
     s = get_session_or_404(sessions, sid)
-    return chat_window(s.messages, sid)
+    return Div(
+        *[chat_bubble(m) for m in s.messages],
+        id="chat-messages"
+    )
 
 @rt("/nurse/poll")
 @login_required
@@ -407,7 +430,10 @@ async def beneficiary_send(request, sid: str):
     message = form.get("message", "").strip()
 
     if not message:
-        return beneficiary_chat_fragment(sid, s)
+        return Div(
+            *[chat_bubble(m) for m in s.messages],
+            id="chat-messages"
+        )
 
     s.messages.append(
         Message(
@@ -432,27 +458,29 @@ async def beneficiary_send(request, sid: str):
         # URGENT BYPASS
         if is_urgent(message):
             urgent_bypass(s)
-            return beneficiary_chat_fragment(sid, s)
         
-        s.intake.current_index += 1
+        else: 
+            s.intake.current_index += 1
 
-        if intake_finished(s):
-            s.intake.completed = True
-            complete_intake(s)
-        
-        else:
-            s.messages.append(
-                Message(
-                    role="assistant",
-                    content=current_intake_question(s),
-                    timestamp=datetime.now(),
-                    phase="intake"
+            if intake_finished(s):
+                s.intake.completed = True
+                complete_intake(s)
+            
+            else:
+                s.messages.append(
+                    Message(
+                        role="assistant",
+                        content=current_intake_question(s),
+                        timestamp=datetime.now(),
+                        phase="intake"
+                    )
+                    
                 )
-                
-            )
-        return beneficiary_chat_fragment(sid, s)
-    
-    return beneficiary_chat_fragment(sid, s)
+   
+    return Div(
+        *[chat_bubble(m) for m in s.messages], 
+        id = "chat-messages"
+        )
 
 
 
@@ -505,7 +533,10 @@ async def nurse_send(request, sid : str):
     message = form.get("message", "").strip()
 
     if not message:
-        return nurse_chat_fragment(sid, s)
+        return Div(
+            *[chat_bubble(m) for m in s.messages],
+            id="chat-messages"
+        )
     
     s.messages.append(
         Message(
@@ -518,6 +549,9 @@ async def nurse_send(request, sid : str):
 
     nurse_joins(s)
 
-    return nurse_chat_fragment(sid, s)
+    return Div(
+        *[chat_bubble(m) for m in s.messages],
+        id="chat-messages"
+    )
 
 serve()
