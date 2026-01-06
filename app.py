@@ -150,11 +150,6 @@ def chat_bubble(msg: Message):
 
     
 
-    return Div(
-        Div(msg.role.capitalize(), cls="chat-header"),
-        Div(msg.content, cls=f"chat-bubble {color}"),
-        cls=f"chat {align}"
-    )
 
 def chat_window(messages: list[Message], sid: str):
     return Div(

@@ -29,7 +29,7 @@ def beneficiary_form(sid: str) -> Any:
         ),
         Button("Send", cls="btn btn-primary mt-2", type="submit", hx_disable_elt="this"),
         hx_post=f"/beneficiary/{sid}/send",
-        hx_target="#chat-window",
+        hx_target="#chat-fragment",
         hx_swap="outerHTML",
         hx_on="htmx:afterRequest: this.reset()",
         method="post"
