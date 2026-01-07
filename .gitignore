@@ -9,6 +9,9 @@ __pycache__/
 venv/
 env/
 
+# Environment variables and secrets
+.env
+.env.*
 # Vscode settings
 .vscode
 

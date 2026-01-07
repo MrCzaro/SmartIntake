@@ -35,3 +35,4 @@ class ChatSession:
     state : ChatState = ChatState.INTAKE 
     messages: list[Message] = field(default_factory=list)
     intake : IntakeState = field(default_factory=IntakeState)
+    summary: str | None = None

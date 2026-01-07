@@ -1,16 +1,18 @@
+import os
 from fasthtml.common import *
 from monsterui.all import *
 from starlette.staticfiles import StaticFiles
 from uuid import uuid4
 from datetime import datetime
 from starlette.middleware.sessions import SessionMiddleware
-from forms import nurse_form, beneficiary_form, beneficiary_controls, login_card, signup_card
-from helpers import hash_password, verify_password, login_required, get_session_or_404, require_role, init_db, get_db
+from forms import nurse_form, beneficiary_form, beneficiary_controls, login_card, signup_card, intake_summary
+from helpers import hash_password, verify_password, login_required, get_session_or_404, require_role, init_db, get_db, generate_intake_summary
 from models import ChatSession, Message, ChatState, IntakeAnswer
 
 
 # Initialize DB on startup
 init_db()
+
 
 # -- App setup ---
 hdrs = Theme.blue.headers()
@@ -135,7 +137,11 @@ def state_badge(state: ChatState):
         cls=f"badge {color} mb-4"
     )
 
-def chat_bubble(msg: Message):
+def chat_bubble(msg: Message, user_role: str):
+# If it's a summary and the viewer is not a nurse return nothing
+    if msg.phase == "summary" and user_role != "nurse":
+        return Span()
+
     align = {
         "beneficiary": "chat-start",
         "nurse": "chat-end",
@@ -214,8 +220,23 @@ def system_message(s: ChatSession, text: str):
     )
 
 def complete_intake(s: ChatSession):
-    if s.state != ChatState.INTAKE:
-        return
+    if s.state != ChatState.INTAKE: return
+    
+    # Generate the intake summary
+    generate_intake_summary(s)
+    
+    # Add it as a hidden message in the chat history
+    if s.summary:
+        s.messages.append(
+            Message(
+                role="assistant",
+                content=s.summary,
+                timestamp=datetime.now(),
+                phase="summary"
+            )
+        )
+
+    
     s.state = ChatState.WAITING_FOR_NURSE
     system_message(
         s, 
@@ -511,11 +532,14 @@ def nurse_view(request, sid: str):
     if guard: return guard
 
     s = get_session_or_404(sessions, sid)
+    
+    
     nurse_joins(s)
-
+    summary_component = intake_summary(s.summary) if s.summary else None
     content = Titled(
         "Nurse Review",
         state_badge(s.state),
+        summary_component,
         nurse_chat_fragment(sid, s)
     )
     return layout(request, content, page_title  = "Nurse Review - MedAIChat")

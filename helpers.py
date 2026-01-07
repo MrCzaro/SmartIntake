@@ -1,5 +1,4 @@
-import bcrypt
-import sqlite3
+import bcrypt, sqlite3, os
 from typing import Dict, Optional
 from functools import wraps
 from inspect import iscoroutinefunction
@@ -7,6 +6,33 @@ from fasthtml.common import Redirect, HTTPException
 from starlette.requests import Request
 from models import ChatSession
 
+from dotenv import load_dotenv
+from google import genai
+
+# Load .env
+load_dotenv() 
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+# Load Genai from Google
+client = genai.Client(api_key=GOOGLE_API_KEY)
+
+
+def generate_intake_summary(s: ChatSession):
+    # Prepare the data string from intake answers
+    data = "\n".join([f"Question: {i.question}\nAnswer: {i.answer}" for i in s.intake.answers])
+    instructions = """You are a medical intake assistant. 
+    Your only task is to summarize the patient's answers into a short, professional note for a nurse. 
+    Describe the symptoms and current situation clearly. 
+    Stricly forbidden: Do not provide medical advice, suggestion, diagnoses, or care plans."""
+    MODEL_ID = "models/gemini-2.5-flash"
+    # Call the Gemini API
+    response = client.models.generate_content(
+        model = MODEL_ID,
+        contents=f"Please summarize these patient answers:\n\n{data}",
+        config={
+            "system_instruction" : instructions
+        }
+    )
+    s.summary = response.text
 
 def hash_password(plain_password: str) -> str:
     """
