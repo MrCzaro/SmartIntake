@@ -16,23 +16,30 @@ GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 client = genai.Client(api_key=GOOGLE_API_KEY)
 
 
-def generate_intake_summary(s: ChatSession):
+async def generate_intake_summary(s: ChatSession):
     # Prepare the data string from intake answers
     data = "\n".join([f"Question: {i.question}\nAnswer: {i.answer}" for i in s.intake.answers])
     instructions = """You are a medical intake assistant. 
     Your only task is to summarize the patient's answers into a short, professional note for a nurse. 
     Describe the symptoms and current situation clearly. 
     Stricly forbidden: Do not provide medical advice, suggestion, diagnoses, or care plans."""
-    MODEL_ID = "models/gemini-2.5-flash"
+    models  = ["models/gemini-2.5-flash", "models/gemini-2.0-flash", "models/gemini-1.5-flash"]
     # Call the Gemini API
-    response = client.models.generate_content(
-        model = MODEL_ID,
-        contents=f"Please summarize these patient answers:\n\n{data}",
-        config={
-            "system_instruction" : instructions
-        }
-    )
-    s.summary = response.text
+    for model in models:
+        try:
+
+            response = await client.aio.models.generate_content(
+                model = model,
+                contents=f"Please summarize these patient answers:\n\n{data}",
+                config={
+                    "system_instruction" : instructions
+                }
+            )
+            s.summary = response.text
+            return
+        except Exception as e:
+            print(f"Model {model} failed: {e}")
+            continue # try next model from the models list
 
 def hash_password(plain_password: str) -> str:
     """

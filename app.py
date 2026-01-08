@@ -141,6 +141,13 @@ def chat_bubble(msg: Message, user_role: str):
 # If it's a summary and the viewer is not a nurse return nothing
     if msg.phase == "summary" and user_role != "nurse":
         return Span()
+    
+    if msg.phase == "summary":
+        return Div(
+            Div("Intake Summary", cls="chat-header text-blue-600 font-bold"),
+            Div(msg.content, cls="chat-bubble chat-bubble-info border-2 border-blue-400 italic"), 
+            cls="chat chat-middle my-4"
+        )
 
     align = {
         "beneficiary": "chat-start",
@@ -173,10 +180,10 @@ def chat_bubble(msg: Message, user_role: str):
     
 
 
-def chat_window(messages: list[Message], sid: str):
+def chat_window(messages: list[Message], sid: str, user_role: str):
     return Div(
         Div(
-            *[chat_bubble(m) for m in messages],
+            *[chat_bubble(m, user_role) for m in messages],
             id = "chat-messages"
         ),
         id="chat-window",
@@ -187,17 +194,17 @@ def chat_window(messages: list[Message], sid: str):
         hx_target="#chat-messages"
     )
 
-def beneficiary_chat_fragment(sid: str, s:ChatSession):
+def beneficiary_chat_fragment(sid: str, s:ChatSession, user_role: str):
     return Div(
-        chat_window(s.messages, sid),
+        chat_window(s.messages, sid, user_role),
         beneficiary_form(sid),
         beneficiary_controls(s),
         id="chat-fragment"
     )
 
-def nurse_chat_fragment(sid: str, s:ChatSession):
+def nurse_chat_fragment(sid: str, s:ChatSession, user_role):
     return Div(
-        chat_window(s.messages, sid),
+        chat_window(s.messages, sid, user_role),
         nurse_form(sid),
         id="chat-fragment"
     )
@@ -219,11 +226,11 @@ def system_message(s: ChatSession, text: str):
         )
     )
 
-def complete_intake(s: ChatSession):
+async def complete_intake(s: ChatSession):
     if s.state != ChatState.INTAKE: return
     
     # Generate the intake summary
-    generate_intake_summary(s)
+    await generate_intake_summary(s)
     
     # Add it as a hidden message in the chat history
     if s.summary:
@@ -380,9 +387,10 @@ def start(request):
 @rt("/chat/{sid}/poll")
 @login_required
 def poll_chat(request, sid: str):
+    role = request.session.get("role")
     s = get_session_or_404(sessions, sid)
     return Div(
-        *[chat_bubble(m) for m in s.messages],
+        *[chat_bubble(m, role) for m in s.messages],
         id="chat-messages"
     )
 
@@ -418,7 +426,7 @@ def nurse_poll(request):
 def beneficiary_view(request, sid: str):
     guard = require_role(request, "beneficiary")
     if guard: return guard
-
+    role = request.session.get("role")
     s = get_session_or_404(sessions, sid)
 
     typing_indicator = (
@@ -433,7 +441,7 @@ def beneficiary_view(request, sid: str):
     content = Titled(
         "Chat with Care Team", 
         typing_indicator,
-        beneficiary_chat_fragment(sid,s)
+        beneficiary_chat_fragment(sid,s, role)
     )
 
     return layout(request, content, page_title = "Beneficiary Chat - MedAIChat")
@@ -444,7 +452,7 @@ def beneficiary_view(request, sid: str):
 async def beneficiary_send(request, sid: str):
     guard = require_role(request, "beneficiary")
     if guard: return guard
-
+    role = request.session.get("role")
     s = get_session_or_404(sessions, sid)
 
     form = await request.form()
@@ -452,7 +460,7 @@ async def beneficiary_send(request, sid: str):
 
     if not message:
         return Div(
-            *[chat_bubble(m) for m in s.messages],
+            *[chat_bubble(m, role) for m in s.messages],
             id="chat-messages"
         )
 
@@ -485,7 +493,7 @@ async def beneficiary_send(request, sid: str):
 
             if intake_finished(s):
                 s.intake.completed = True
-                complete_intake(s)
+                await complete_intake(s)
             
             else:
                 s.messages.append(
@@ -499,7 +507,7 @@ async def beneficiary_send(request, sid: str):
                 )
    
     return Div(
-        *[chat_bubble(m) for m in s.messages], 
+        *[chat_bubble(m, role) for m in s.messages], 
         id = "chat-messages"
         )
 
@@ -530,7 +538,7 @@ def nurse_dashboard(request):
 def nurse_view(request, sid: str):
     guard = require_role(request, "nurse")
     if guard: return guard
-
+    role = request.session.get("role")
     s = get_session_or_404(sessions, sid)
     
     
@@ -540,7 +548,7 @@ def nurse_view(request, sid: str):
         "Nurse Review",
         state_badge(s.state),
         summary_component,
-        nurse_chat_fragment(sid, s)
+        nurse_chat_fragment(sid, s, role)
     )
     return layout(request, content, page_title  = "Nurse Review - MedAIChat")
 
@@ -550,6 +558,7 @@ def nurse_view(request, sid: str):
 async def nurse_send(request, sid : str):
     guard = require_role(request, "nurse")
     if guard: return guard
+    role = request.session.get("role")
 
     s = get_session_or_404(sessions, sid)
 
@@ -558,7 +567,7 @@ async def nurse_send(request, sid : str):
 
     if not message:
         return Div(
-            *[chat_bubble(m) for m in s.messages],
+            *[chat_bubble(m, role) for m in s.messages],
             id="chat-messages"
         )
     
@@ -574,7 +583,7 @@ async def nurse_send(request, sid : str):
     nurse_joins(s)
 
     return Div(
-        *[chat_bubble(m) for m in s.messages],
+        *[chat_bubble(m, role) for m in s.messages],
         id="chat-messages"
     )
 
