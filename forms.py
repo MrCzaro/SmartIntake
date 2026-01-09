@@ -4,6 +4,28 @@ from typing import Any
 from models import ChatSession, ChatState
 
 
+def nurse_case_card(s: ChatSession):
+    last_msg = s.messages[-1].content if s.messages else "No messages yet."
+
+    return Div(
+        Div(f"Session: {s.session_id}", cls="font-mono text-sm"),
+        Div(f"Last message: {last_msg[:80]}"),
+        A(
+            "Open case", href=f"/nurse/{s.session_id}",
+            cls = "btn btn-primary btn-sm mt-2"
+            ),
+        cls="card bg-base-100 shadow p-4"
+    )
+
+def summary_message_fragment(content : str):
+    return Card(
+        DivLAligned(
+            UkIcon("clipboard-list", cls="mr-2 text-primary"),
+            H4("Intake Summary", cls=TextPresets.bold_sm)
+        ),
+        P(content, cls=TextPresets.muted_sm),
+        cls=(CardT.secondary, "my-4 border-l-4 border-primary")
+    )
 
 def beneficiary_form(sid: str) -> Any:
     """

@@ -5,7 +5,7 @@ from starlette.staticfiles import StaticFiles
 from uuid import uuid4
 from datetime import datetime
 from starlette.middleware.sessions import SessionMiddleware
-from forms import nurse_form, beneficiary_form, beneficiary_controls, login_card, signup_card
+from forms import nurse_form, beneficiary_form, beneficiary_controls, login_card, signup_card, summary_message_fragment, nurse_case_card
 from helpers import hash_password, verify_password, login_required, get_session_or_404, require_role, init_db, get_db, generate_intake_summary
 from models import ChatSession, Message, ChatState, IntakeAnswer
 
@@ -41,20 +41,6 @@ rt = app.route
 
 
 sessions : dict[str, ChatSession] = {}
-
-
-def nurse_case_card(s: ChatSession):
-    last_msg = s.messages[-1].content if s.messages else "No messages yet."
-
-    return Div(
-        Div(f"Session: {s.session_id}", cls="font-mono text-sm"),
-        Div(f"Last message: {last_msg[:80]}"),
-        A(
-            "Open case", href=f"/nurse/{s.session_id}",
-            cls = "btn btn-primary btn-sm mt-2"
-            ),
-        cls="card bg-base-100 shadow p-4"
-    )
 
 
 # Globals
@@ -127,16 +113,13 @@ def layout(request, content, page_title="MedAiChat"):
 
 def chat_bubble(msg: Message, user_role: str):
 # If it's a summary and the viewer is not a nurse return nothing
-    if msg.phase == "summary" and user_role != "nurse":
-        return Span()
-    
     if msg.phase == "summary":
-        return Div(
-            Div("Intake Summary", cls="chat-header text-blue-600 font-bold"),
-            Div(msg.content, cls="chat-bubble chat-bubble-info border-2 border-blue-400 italic"), 
-            cls="chat chat-middle my-4"
-        )
-
+        if user_role == "nurse":
+            return summary_message_fragment(msg.content)
+        else: return Span()
+  
+        
+ 
     align = {
         "beneficiary": "chat-start",
         "nurse": "chat-end",
