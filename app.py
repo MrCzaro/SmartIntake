@@ -5,7 +5,7 @@ from starlette.staticfiles import StaticFiles
 from uuid import uuid4
 from datetime import datetime
 from starlette.middleware.sessions import SessionMiddleware
-from forms import nurse_form, beneficiary_form, beneficiary_controls, login_card, signup_card, intake_summary
+from forms import nurse_form, beneficiary_form, beneficiary_controls, login_card, signup_card
 from helpers import hash_password, verify_password, login_required, get_session_or_404, require_role, init_db, get_db, generate_intake_summary
 from models import ChatSession, Message, ChatState, IntakeAnswer
 
@@ -47,7 +47,6 @@ def nurse_case_card(s: ChatSession):
     last_msg = s.messages[-1].content if s.messages else "No messages yet."
 
     return Div(
-        state_badge(s.state),
         Div(f"Session: {s.session_id}", cls="font-mono text-sm"),
         Div(f"Last message: {last_msg[:80]}"),
         A(
@@ -60,16 +59,18 @@ def nurse_case_card(s: ChatSession):
 
 # Globals
 INTAKE_SCHEMA = [
-    {"id" : "chief_complaint", "q" : "What is your main issue today?"},
-    {"id" : "onest", "q" : "When did is start?"},
-    {"id" : "severity", "q" : "How severe is it from 1-10?"},
-    {"id" : "location", "q" : "Where is the problem located?"},
-    {"id" : "modifiers", "q" : "What makes it better or worse?"},
-    {"id" : "fever", "q" : "Have you had a fever?"},
-    {"id" : "medications", "q" : "What medications are you currently taking?"},
-    {"id" : "conditions", "q" : "Any chronic conditions?"},
-    {"id" : "prior_contact", "q" : "Have you contacted us about this before?"}
+    {"id": "chief_complaint", "q": "What is your main issue today?"},
+    {"id": "onset", "q": "When did it start?"},
+    {"id": "severity", "q": "How severe is it from 1 to 10?"},
+    {"id": "location", "q": "Where is the problem located?"},
+    {"id": "relieving_factors", "q": "What makes it better?"},
+    {"id": "aggravating_factors", "q": "What makes it worse?"},
+    {"id": "fever", "q": "Have you had a fever?"},
+    {"id": "medications", "q": "What medications are you currently taking?"},
+    {"id": "conditions", "q": "Any chronic conditions?"},
+    {"id": "prior_contact", "q": "Have you contacted us about this before?"}
 ]
+
 
 URGENT_KEYWORDS = [ ### Temp
     "chest pain",
@@ -123,19 +124,6 @@ def layout(request, content, page_title="MedAiChat"):
     )
 
 
-def state_badge(state: ChatState):
-    color = {
-        ChatState.INTAKE : "badge-warning",
-        ChatState.WAITING_FOR_NURSE : "badge-info",
-        ChatState.NURSE_ACTIVE : "badge-success",
-        ChatState.URGENT : "badge-error",
-        ChatState.CLOSED : "badge-neutral"
-    }.get(state, "badge-neutral")
-
-    return Div(
-        state.value.replace("_", " "),
-        cls=f"badge {color} mb-4"
-    )
 
 def chat_bubble(msg: Message, user_role: str):
 # If it's a summary and the viewer is not a nurse return nothing
@@ -543,11 +531,9 @@ def nurse_view(request, sid: str):
     
     
     nurse_joins(s)
-    summary_component = intake_summary(s.summary) if s.summary else None
+    
     content = Titled(
         "Nurse Review",
-        state_badge(s.state),
-        summary_component,
         nurse_chat_fragment(sid, s, role)
     )
     return layout(request, content, page_title  = "Nurse Review - MedAIChat")

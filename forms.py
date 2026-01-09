@@ -5,13 +5,6 @@ from models import ChatSession, ChatState
 
 
 
-def intake_summary(summary: str):
-    return Div(
-        H4("Intake summary", cls="font-bold text-sm text-blue-800 mb-1"),
-        P(summary, cls="text-sm text-gray-700 leading-relaxed"),
-        cls="bg-blue border-l-4 border-blue-500 p-4 mb-4 rounded-r-lg shadow-sm"
-    )
-
 def beneficiary_form(sid: str) -> Any:
     """
     Render the beneficiary message input form.

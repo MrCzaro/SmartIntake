@@ -40,6 +40,8 @@ async def generate_intake_summary(s: ChatSession):
         except Exception as e:
             print(f"Model {model} failed: {e}")
             continue # try next model from the models list
+    if not s.summary:
+        s.summary = "System Note: Automated summary could not be generated. Please review patient responses manually."
 
 def hash_password(plain_password: str) -> str:
     """
