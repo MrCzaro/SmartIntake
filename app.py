@@ -5,7 +5,7 @@ from starlette.staticfiles import StaticFiles
 from uuid import uuid4
 from datetime import datetime
 from starlette.middleware.sessions import SessionMiddleware
-from forms import nurse_form, beneficiary_form, beneficiary_controls, login_card, signup_card, summary_message_fragment, nurse_case_card
+from forms import nurse_form, beneficiary_form, beneficiary_controls, login_card, signup_card, summary_message_fragment, nurse_case_card, urgent_counter
 from helpers import hash_password, verify_password, login_required, get_session_or_404, require_role, init_db, get_db, generate_intake_summary
 from models import ChatSession, Message, ChatState, IntakeAnswer
 
@@ -46,9 +46,9 @@ sessions : dict[str, ChatSession] = {}
 # Globals
 INTAKE_SCHEMA = [
     {"id": "chief_complaint", "q": "What is your main issue today?"},
+    {"id": "location", "q": "Where is the problem located?"},
     {"id": "onset", "q": "When did it start?"},
     {"id": "severity", "q": "How severe is it from 1 to 10?"},
-    {"id": "location", "q": "Where is the problem located?"},
     {"id": "relieving_factors", "q": "What makes it better?"},
     {"id": "aggravating_factors", "q": "What makes it worse?"},
     {"id": "fever", "q": "Have you had a fever?"},
@@ -371,22 +371,25 @@ def nurse_poll(request):
     guard = require_role(request, "nurse")
     if guard: return guard
 
-    ready = [s for s in sessions.values() if s.state in (ChatState.WAITING_FOR_NURSE, ChatState.URGENT)]
+    priority = {
+        ChatState.URGENT : 0,
+        ChatState.WAITING_FOR_NURSE : 1,
+    }
 
-    cases = (
-        Div("No cases ready.", cls="alert alert-info")
-        if not ready
-        else Div(*[nurse_case_card(s) for s in ready], cls="grid gap-4")
+    ready_sorted = sorted(
+        (s for s in sessions.values() if s.state in priority),
+        key = lambda s: priority.get(s.state, 99)
     )
-    
-    content = Div(
-        cases,
-        id="nurse-cases",
-        hx_get="/nurse/poll",
-        hx_trigger="every 3s",
-        hx_swap="outerHTML"
-    )
-    return content
+
+    if not ready_sorted:
+        case = Div("No cases ready.", cls="alert alert-info")
+    else:
+        case = Div(*[nurse_case_card(s) for s in ready_sorted], cls="grid gap-4")
+
+    urgent_count = len([s for s in ready_sorted if s.state == ChatState.URGENT])
+    counter = urgent_counter(urgent_count)
+
+    return case, counter
 
 
 
@@ -493,11 +496,12 @@ def nurse_dashboard(request):
 
     content = Titled(
         "Nurse Dashboard",
+        Div("Urgent: 0", id="urgent-count", cls="badge badge-ghost"),
         Div(
             id="nurse-cases",
             hx_get="/nurse/poll",
             hx_trigger="load, every 3s",
-            hx_swap="outerHTML"
+            hx_swap="innerHTML"
         )
     )
     

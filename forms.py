@@ -4,17 +4,37 @@ from typing import Any
 from models import ChatSession, ChatState
 
 
+def urgent_counter(count: int):
+    # The ID must match where we want to swap it
+    return Div(
+        f"Urgent Cases: {count}",
+        id="urgent-count",
+        cls=f"badge {BadgeT.error if count > 0 else BadgeT.ghost} p-4 font-bold",
+        # This is the magic attribute for the poll response
+        hx_swap_oob="true" if count is not None else "false"
+    )
+
 def nurse_case_card(s: ChatSession):
     last_msg = s.messages[-1].content if s.messages else "No messages yet."
 
+
+    # Determine if the casae is urgent
+    is_urgent = s.state == ChatState.URGENT
+
+    # Conditional styling
+    urgent_styles = "bg-error/10 border-l-8 border-error shadow-lg" if is_urgent else "bg-base-100"
     return Div(
-        Div(f"Session: {s.session_id}", cls="font-mono text-sm"),
-        Div(f"Last message: {last_msg[:80]}"),
+        # Header with Urgent Badge
+        DivLAligned(
+            Div(f"Session: {s.session_id[:8]}", cls="font-mono text-sm font-bold"),
+            Badge("URGENT", cls="badge-error ml-2") if is_urgent else Span()
+        ),
+        Div(f"Last message: {last_msg[:80]}...", cls="text-sm mt-1"),
         A(
             "Open case", href=f"/nurse/{s.session_id}",
-            cls = "btn btn-primary btn-sm mt-2"
-            ),
-        cls="card bg-base-100 shadow p-4"
+            cls="btn btn-primary btn-sm mt-2 w-full"
+        ),
+        cls=f"card {urgent_styles} shadow p-4 transition-all duration-300"
     )
 
 def summary_message_fragment(content : str):
