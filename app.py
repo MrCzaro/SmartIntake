@@ -1,4 +1,3 @@
-import os
 from fasthtml.common import *
 from monsterui.all import *
 from starlette.staticfiles import StaticFiles
@@ -405,15 +404,13 @@ def beneficiary_view(request, sid: str):
 
 
 
-    content = Titled(
-        "Chat with Care Team",
+    content = Div(
+        emergency_header(s),
         Div(
-            emergency_header(s),
-            Div(
-                beneficiary_chat_fragment(sid,s, role),
-                cls="container mx-auto p-4"
-            )
-        )
+            beneficiary_chat_fragment(sid,s, role),
+            cls="container mx-auto p-4"
+            ),
+            cls="min-h-screen bg-base-100"
         ) 
 
     return layout(request, content, page_title = "Beneficiary Chat - MedAIChat")
@@ -430,12 +427,15 @@ async def beneficiary_send(request, sid: str):
     form = await request.form()
     message = form.get("message", "").strip()
 
+    red_flags = ["chest pain", "shortness of breath", "can't breathe", "severe bleeding", "unconscious", "stroke", "heart attack"]
+    
     if not message:
         return Div(
             *[chat_bubble(m, role) for m in s.messages],
             id="chat-messages"
         )
 
+    is_message_urgent = any(flag in message.lower() for flag in red_flags)
     s.messages.append(
         Message(
             role="beneficiary", 
@@ -446,37 +446,40 @@ async def beneficiary_send(request, sid: str):
     )
     
     if s.state == ChatState.INTAKE:
-        q = INTAKE_SCHEMA[s.intake.current_index]
-        
-        s.intake.answers.append(
-            IntakeAnswer(
-                question_id=q["id"],
-                question=q["q"],
-                answer=message,
-                timestamp=datetime.now()
-            )
-        )
-        # URGENT BYPASS
-        if is_urgent(message):
+        if is_message_urgent:
             urgent_bypass(s)
-        
-        else: 
-            s.intake.current_index += 1
-
-            if intake_finished(s):
-                s.intake.completed = True
-                await complete_intake(s)
+        else:
+            q = INTAKE_SCHEMA[s.intake.current_index]
             
-            else:
-                s.messages.append(
-                    Message(
-                        role="assistant",
-                        content=current_intake_question(s),
-                        timestamp=datetime.now(),
-                        phase="intake"
-                    )
-                    
+            s.intake.answers.append(
+                IntakeAnswer(
+                    question_id=q["id"],
+                    question=q["q"],
+                    answer=message,
+                    timestamp=datetime.now()
                 )
+            )
+            # URGENT BYPASS
+            if is_urgent(message):
+                urgent_bypass(s)
+            
+            else: 
+                s.intake.current_index += 1
+
+                if intake_finished(s):
+                    s.intake.completed = True
+                    await complete_intake(s)
+                
+                else:
+                    s.messages.append(
+                        Message(
+                            role="assistant",
+                            content=current_intake_question(s),
+                            timestamp=datetime.now(),
+                            phase="intake"
+                        )
+                        
+                    )
    
     return Div(
         *[chat_bubble(m, role) for m in s.messages], 
@@ -493,11 +496,14 @@ def beneficiary_emergency(request, sid: str):
     s = get_session_or_404(sessions, sid)
 
     urgent_bypass(s)
+
     chat = Div(*[chat_bubble(m, role) for m in s.messages], id="chat-messages")
     header = emergency_header(s)
     header.attrs["hx_swap_oob"] = "true"
+    controls = beneficiary_controls(s)
+    controls.attrs["hx_swap_oob"] = "true"
 
-    return chat, header
+    return chat, header, controls
 
 
 ###  Nurse Part 

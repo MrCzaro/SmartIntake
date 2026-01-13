@@ -28,7 +28,7 @@ def nurse_case_card(s: ChatSession):
         # Header with Urgent Badge
         DivLAligned(
             Div(f"Session: {s.session_id[:8]}", cls="font-mono text-sm font-bold"),
-            Badge("URGENT", cls="badge-error ml-2") if is_urgent else Span()
+            Span("URGENT", cls="badge badge-error ml-2") if is_urgent else Span()
         ),
         Div(f"Last message: {last_msg[:80]}...", cls="text-sm mt-1"),
         A(
@@ -54,7 +54,9 @@ def emergency_header(s: ChatSession):
     status_content = Span("🆘 NURSE NOTIFIED - Responding Shortly", cls="font-bold animate-pulse") if is_urgent else \
                     Button("EMERGENCY: NEED A NURSE", 
                            hx_post=f"/beneficiary/{s.session_id}/emergency", 
+                           hx_target="#chat-messages",
                            hx_confirm="Are you sure you need to escalate to emergency care?",
+                           hx_on__htmx_config_request="this.setAttribute('disabled', 'disabled')",
                            cls="btn btn-error btn-sm lg:btn-md")
     header_cls = "navbar bg-error/20 border-b-4 border-error" if is_urgent else "navbar bg-base-100 border-b-2 border-base-300"
 
@@ -64,6 +66,8 @@ def emergency_header(s: ChatSession):
         id = "chat-header",
         cls=f"{header_cls} mb-4 flex justify-between px-4 sticky top-0 z-50" 
     )
+
+
        
 def beneficiary_form(sid: str) -> Any:
     """
@@ -80,15 +84,27 @@ def beneficiary_form(sid: str) -> Any:
         Any: FastHTML Form component.
     """
 
-    return Form( 
-        Input(type="hidden", name="sid", value=sid),
-        Input(
-            name="message",
-            id="chat-input",
-            placeholder="Type your message...",
-            cls="input input-bordered w-full"
+    return Form(
+        Div(
+            Button(
+                "🆘",
+                hx_post=f"/beneficiary/{sid}/emergency",
+                hx_target="#chat-messages",
+                hx_confirm="Are you sure you need to escalate as an Emergency care?",
+                hx_on__htmx_config_request="this.setAttribute('disabled', 'disabled')",
+                type="button", # Important: 'button' so it doesn't submit the text form
+                cls="btn btn-error btn-square",
+                title="Emergency Escalation"
+            ),
+            Input(
+                name="message",
+                id="chat-input",
+                placeholder="Type your message...",
+                cls="input input-bordered w-full"
+            ),
+            Button("Send", cls="btn btn-primary mt-2", type="submit", hx_disable_elt="this"),
+            cls="flex gap-2 p-4 bg-base-200 border-t items-center"
         ),
-        Button("Send", cls="btn btn-primary mt-2", type="submit", hx_disable_elt="this"),
         hx_post=f"/beneficiary/{sid}/send",
         hx_target="#chat-messages",
         hx_swap="innerHTML",
@@ -115,24 +131,15 @@ def beneficiary_controls(s: ChatSession) -> Any:
     """
 
     if s.state == ChatState.INTAKE:
-        return Div(
-            "Please answer all intake questions to continue.",
-            cls="alert alert-warning mt-4"
-        )
+        content =  Div("Please answer all intake questions to continue.", cls="alert alert-warning mt-4")
     
     if s.state == ChatState.WAITING_FOR_NURSE:
-        return Div(
-            "Your intake is complete. Waiting for a nurse...",
-            cls="alert alert-info mt-4"
-        )
+        content =  Div("Your intake is complete. Waiting for a nurse...", cls="alert alert-info mt-4")
     
     if s.state in (ChatState.NURSE_ACTIVE, ChatState.URGENT):
-        return Div(
-            "You may continue chatting with the nurse.",
-            cls = "alert alert-success mt-4"
-        )
+        content = Div("You may continue chatting with the nurse.", cls = "alert alert-success mt-4")
     
-    return Div()
+    return Div(content, id="beneficiary-controls")
     
 
 
@@ -159,19 +166,7 @@ def nurse_form(sid: str) -> Any:
         method="post"
     )
 
-def chat_input_group(sid: str) -> Any:
-    return Form(
-        Div(
-        # Urgent Button 
-            Button("🆘", hx_post=f"/beneficiary/{sid}/emergency", cls="btn btn-error btn-square", title="Emergency Escalation"),
-            Input(name="message", placeholder="Type your message...", cls="input input-bordered flex-grow"),
-            Button("Send", cls="btn btn-primary"),
-            cls="flex gap-2 p-4 bg-base-200 border-t"
-        ),
-        hx_post=f"/beneficiary/{sid}/send",
-        hx_target="#chat-messages",
-        hx_swap="innerHTML"
-    )
+
 
 def login_card(error_message: str | None = None, prefill_email: str = "") -> Any:
     """
