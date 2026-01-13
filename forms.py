@@ -6,10 +6,11 @@ from models import ChatSession, ChatState
 
 def urgent_counter(count: int):
     # The ID must match where we want to swap it
+    badge_cls = "badge-error" if count > 0 else "badge-ghost"
     return Div(
         f"Urgent Cases: {count}",
         id="urgent-count",
-        cls=f"badge {BadgeT.error if count > 0 else BadgeT.ghost} p-4 font-bold",
+        cls=f"badge {badge_cls} p-4 font-bold",
         # This is the magic attribute for the poll response
         hx_swap_oob="true" if count is not None else "false"
     )
@@ -47,6 +48,23 @@ def summary_message_fragment(content : str):
         cls=(CardT.secondary, "my-4 border-l-4 border-primary")
     )
 
+def emergency_header(s: ChatSession):
+    is_urgent = s.state == ChatState.URGENT
+
+    status_content = Span("🆘 NURSE NOTIFIED - Responding Shortly", cls="font-bold animate-pulse") if is_urgent else \
+                    Button("EMERGENCY: NEED A NURSE", 
+                           hx_post=f"/beneficiary/{s.session_id}/emergency", 
+                           hx_confirm="Are you sure you need to escalate to emergency care?",
+                           cls="btn btn-error btn-sm lg:btn-md")
+    header_cls = "navbar bg-error/20 border-b-4 border-error" if is_urgent else "navbar bg-base-100 border-b-2 border-base-300"
+
+    return Div(
+        H3("MedAIChat", cls="text-xl font-bold"),
+        status_content,
+        id = "chat-header",
+        cls=f"{header_cls} mb-4 flex justify-between px-4 sticky top-0 z-50" 
+    )
+       
 def beneficiary_form(sid: str) -> Any:
     """
     Render the beneficiary message input form.
@@ -141,6 +159,19 @@ def nurse_form(sid: str) -> Any:
         method="post"
     )
 
+def chat_input_group(sid: str) -> Any:
+    return Form(
+        Div(
+        # Urgent Button 
+            Button("🆘", hx_post=f"/beneficiary/{sid}/emergency", cls="btn btn-error btn-square", title="Emergency Escalation"),
+            Input(name="message", placeholder="Type your message...", cls="input input-bordered flex-grow"),
+            Button("Send", cls="btn btn-primary"),
+            cls="flex gap-2 p-4 bg-base-200 border-t"
+        ),
+        hx_post=f"/beneficiary/{sid}/send",
+        hx_target="#chat-messages",
+        hx_swap="innerHTML"
+    )
 
 def login_card(error_message: str | None = None, prefill_email: str = "") -> Any:
     """

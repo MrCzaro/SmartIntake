@@ -5,7 +5,7 @@ from starlette.staticfiles import StaticFiles
 from uuid import uuid4
 from datetime import datetime
 from starlette.middleware.sessions import SessionMiddleware
-from forms import nurse_form, beneficiary_form, beneficiary_controls, login_card, signup_card, summary_message_fragment, nurse_case_card, urgent_counter
+from forms import nurse_form, beneficiary_form, beneficiary_controls, login_card, signup_card, summary_message_fragment, nurse_case_card, urgent_counter, emergency_header
 from helpers import hash_password, verify_password, login_required, get_session_or_404, require_role, init_db, get_db, generate_intake_summary
 from models import ChatSession, Message, ChatState, IntakeAnswer
 
@@ -403,20 +403,18 @@ def beneficiary_view(request, sid: str):
     role = request.session.get("role")
     s = get_session_or_404(sessions, sid)
 
-    typing_indicator = (
-        Span(
-            "Nurse is reviewing your case...",
-            cls="animate-pulse text-sm text-gray-500 mt-2"
-        )
-        if s.state == ChatState.NURSE_ACTIVE
-        else None
-    )
+
 
     content = Titled(
-        "Chat with Care Team", 
-        typing_indicator,
-        beneficiary_chat_fragment(sid,s, role)
-    )
+        "Chat with Care Team",
+        Div(
+            emergency_header(s),
+            Div(
+                beneficiary_chat_fragment(sid,s, role),
+                cls="container mx-auto p-4"
+            )
+        )
+        ) 
 
     return layout(request, content, page_title = "Beneficiary Chat - MedAIChat")
 
@@ -485,6 +483,21 @@ async def beneficiary_send(request, sid: str):
         id = "chat-messages"
         )
 
+
+@rt("/beneficiary/{sid}/emergency")
+@login_required
+def beneficiary_emergency(request, sid: str):
+    guard = require_role(request, "beneficiary")
+    if guard: return guard
+    role = request.session.get("role")
+    s = get_session_or_404(sessions, sid)
+
+    urgent_bypass(s)
+    chat = Div(*[chat_bubble(m, role) for m in s.messages], id="chat-messages")
+    header = emergency_header(s)
+    header.attrs["hx_swap_oob"] = "true"
+
+    return chat, header
 
 
 ###  Nurse Part 
