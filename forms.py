@@ -69,7 +69,7 @@ def emergency_header(s: ChatSession):
 
 
        
-def beneficiary_form(sid: str) -> Any:
+def beneficiary_form(sid: str, s: ChatSession) -> Any:
     """
     Render the beneficiary message input form.
     
@@ -83,19 +83,25 @@ def beneficiary_form(sid: str) -> Any:
     Returns:
         Any: FastHTML Form component.
     """
+    is_escalated = s.state in (ChatState.URGENT, ChatState.NURSE_ACTIVE)
 
-    return Form(
-        Div(
-            Button(
+    if is_escalated:
+        sos_btn = Span("✅ Notified", cls="btn btn-ghost no-animation text-success btn-square")
+    else:
+        sos_btn = Button(
                 "🆘",
                 hx_post=f"/beneficiary/{sid}/emergency",
                 hx_target="#chat-messages",
-                hx_confirm="Are you sure you need to escalate as an Emergency care?",
+                hx_confirm="Escalate to a nurse?",
                 hx_on__htmx_config_request="this.setAttribute('disabled', 'disabled')",
                 type="button", # Important: 'button' so it doesn't submit the text form
                 cls="btn btn-error btn-square",
                 title="Emergency Escalation"
             ),
+
+    return Form(
+        Div(
+            sos_btn,
             Input(
                 name="message",
                 id="chat-input",
