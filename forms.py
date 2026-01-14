@@ -97,7 +97,7 @@ def beneficiary_form(sid: str, s: ChatSession) -> Any:
                 type="button", # Important: 'button' so it doesn't submit the text form
                 cls="btn btn-error btn-square",
                 title="Emergency Escalation"
-            ),
+            )
 
     return Form(
         Div(
@@ -111,6 +111,7 @@ def beneficiary_form(sid: str, s: ChatSession) -> Any:
             Button("Send", cls="btn btn-primary mt-2", type="submit", hx_disable_elt="this"),
             cls="flex gap-2 p-4 bg-base-200 border-t items-center"
         ),
+        id="beneficiary-input-form",
         hx_post=f"/beneficiary/{sid}/send",
         hx_target="#chat-messages",
         hx_swap="innerHTML",

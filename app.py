@@ -57,20 +57,6 @@ INTAKE_SCHEMA = [
 ]
 
 
-URGENT_KEYWORDS = [ ### Temp
-    "chest pain",
-    "shortness of breath",
-    "can't breathe",
-    "severe bleeding",
-    "unconscious",
-    "stroke",
-    "heart attack"
-]
-
-def is_urgent(text: str) -> bool: ### Temp
-    t = text.lower()
-    return any(keyword in t for keyword in URGENT_KEYWORDS)
-
 # --- UI helpers ---
 
 def layout(request, content, page_title="MedAiChat"):
@@ -167,7 +153,7 @@ def chat_window(messages: list[Message], sid: str, user_role: str):
 def beneficiary_chat_fragment(sid: str, s:ChatSession, user_role: str):
     return Div(
         chat_window(s.messages, sid, user_role),
-        beneficiary_form(sid),
+        beneficiary_form(sid,s),
         beneficiary_controls(s),
         id="chat-fragment"
     )
@@ -220,13 +206,18 @@ async def complete_intake(s: ChatSession):
         "Thank you. Your intake is complete. A nurse will review your case shortly."
     )
 
-def urgent_bypass(s: ChatSession): ### Temp
+def urgent_bypass(s: ChatSession): 
     s.state = ChatState.URGENT
     system_message(
         s,
         "Your message suggests a potentially urgent condition. A nurse has been notified immediately."
     )
 
+def manual_emergency_escalation(s: ChatSession):
+    s.state = ChatState.URGENT
+    system_message(
+        s,
+        "🚨 Emergency button pressed. A nurse has been notified immediately." )
 def nurse_joins(s: ChatSession):
     if s.state not in (ChatState.WAITING_FOR_NURSE, ChatState.URGENT):
         return
@@ -459,32 +450,36 @@ async def beneficiary_send(request, sid: str):
                     timestamp=datetime.now()
                 )
             )
-            # URGENT BYPASS
-            if is_urgent(message):
-                urgent_bypass(s)
-            
-            else: 
-                s.intake.current_index += 1
 
-                if intake_finished(s):
-                    s.intake.completed = True
-                    await complete_intake(s)
+            s.intake.current_index += 1
+
+            if intake_finished(s):
+                s.intake.completed = True
+                await complete_intake(s)
                 
-                else:
-                    s.messages.append(
-                        Message(
-                            role="assistant",
-                            content=current_intake_question(s),
-                            timestamp=datetime.now(),
-                            phase="intake"
-                        )
-                        
-                    )
-   
-    return Div(
+            else:
+                s.messages.append(
+                    Message(
+                        role="assistant",
+                        content=current_intake_question(s),
+                        timestamp=datetime.now(),
+                        phase="intake"
+                    )      
+                )
+    
+    header = emergency_header(s)
+    header.attrs["hx-swap-oob"] = "true"
+    
+    controls = beneficiary_controls(s)
+    controls.attrs["hx-swap-oob"] = "true"
+    
+    form_update = beneficiary_form(sid, s)
+    form_update.attrs["hx-swap-oob"] = "true"
+            
+    return (Div(
         *[chat_bubble(m, role) for m in s.messages], 
         id = "chat-messages"
-        )
+        ), header, controls, form_update)
 
 
 @rt("/beneficiary/{sid}/emergency")
@@ -492,18 +487,24 @@ async def beneficiary_send(request, sid: str):
 def beneficiary_emergency(request, sid: str):
     guard = require_role(request, "beneficiary")
     if guard: return guard
-    role = request.session.get("role")
+    
     s = get_session_or_404(sessions, sid)
+    manual_emergency_escalation(s)
 
-    urgent_bypass(s)
 
+    role = request.session.get("role")
     chat = Div(*[chat_bubble(m, role) for m in s.messages], id="chat-messages")
+    
     header = emergency_header(s)
-    header.attrs["hx_swap_oob"] = "true"
+    header.attrs["hx-swap-oob"] = "true"
+    
     controls = beneficiary_controls(s)
-    controls.attrs["hx_swap_oob"] = "true"
+    controls.attrs["hx-swap-oob"] = "true"
+    
+    form_update = beneficiary_form(sid, s)
+    form_update.attrs["hx-swap-oob"] = "true"
 
-    return chat, header, controls
+    return chat, header, controls, form_update
 
 
 ###  Nurse Part 
