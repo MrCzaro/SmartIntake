@@ -1,31 +1,123 @@
 from fasthtml.common import *
 from monsterui.all import *
 from typing import Any
-from models import ChatSession, ChatState
+from models import *
+
+
+hdrs = Theme.blue.headers()
+hdrs.append(Script(src="https://unpkg.com/htmx.org@1.9.12"))
+hdrs.append(Script("""
+    document.addEventListener("htmx:afterSwap", function (e) {
+        // Auto-scroll chat window
+        const chat = document.getElementById("chat-window");
+        if (chat) {
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        // Auto-focus input if present
+        const input = document.getElementById("chat-input");
+        if (input) {
+            input.focus();
+        }
+    });
+    """
+))
+
+def layout(request, content, page_title="MedAiChat"):
+    """
+    Provides the standard HTML wrapper for all pages in the application.
+    
+    This function generates the global navigation bar, a consistent footer
+    and the main content container. It dynamically adjusts the navigation 
+    links based on the user's session state (logged in/out and user role).
+    
+    Args:
+        request: The FastHTML request object, used to check session data.
+        content: The specific page content to render within the layout.
+        page_title (str): The title to be displayed in the browser tab.
+        
+    Returns:
+        Html: A complete FastHTML Html component including Head and Body tags.
+    """
+    user = request.session.get("user")
+    role = request.session.get("role")
+
+    logo = A("MedAIChat", href="/", cls="text-xl font-bold text-white")
+
+    links = []
+
+    if not user:
+        links.append(A("Login", href="/login", cls=ButtonT.primary))
+        links.append(A("Signup", href="/signup", cls=ButtonT.secondary))
+    else:
+        links.append(Span(f"Role: {role.capitalize()}", cls="text-white mr-4"))
+        links.append(A("Logout", href="/logout", cls=ButtonT.secondary))
+
+    nav = Nav(
+        Div(logo),
+        Div(*links, cls="flex gap-2"),
+        cls="flex justify-between bg-blue-600 px-4 py-2"
+    )
+    return Html(
+        Head(
+            *hdrs,
+            Title(page_title)
+            ),
+            Body(
+                Div(
+                    Header(nav),
+                    Div(Container(content, id="content", cls="mt-10"), cls="flex-1"),
+                    Footer("© 2025 MedAIChat", cls="bg-blue-600 text-white p-4"),
+                    cls="min-h-screen flex flex-col"
+                )
+            )
+    )
 
 
 def urgent_counter(count: int):
-    # The ID must match where we want to swap it
+    """
+    Renders a status badge showing the number of active urgent cases.
+    
+    This component is designed to be updated via HTMX Out-of-Band (OOB) swaps.
+    It changes its visual style (color) based on whether any urgent cases are currently pending.
+    
+    Args:
+        count (int) : The current number of urgent chat sessions.
+        
+    Returns: 
+        Div: A FastHTML Div component with HTMX OOB swapping enabled.
+    """
+
     badge_cls = "badge-error" if count > 0 else "badge-ghost"
     return Div(
         f"Urgent Cases: {count}",
         id="urgent-count",
         cls=f"badge {badge_cls} p-4 font-bold",
-        # This is the magic attribute for the poll response
         hx_swap_oob="true" if count is not None else "false"
     )
 
 def nurse_case_card(s: ChatSession):
+    """
+    Renders a preview card for a specific chat session in the nurse dashboard.
+    
+    The card displays the session ID, the most recent message, and a prominent
+    'URGENT' badge if the session state is set to URGENT.
+    It also provides a link to open the full case view.
+    
+    Args: 
+        s (ChatSession): The session data used to populate the card.
+        
+    Returns:
+        Div: A styled card component using MonsterUI/DaisyUI classes.
+    """
     last_msg = s.messages[-1].content if s.messages else "No messages yet."
 
-
-    # Determine if the casae is urgent
     is_urgent = s.state == ChatState.URGENT
 
-    # Conditional styling
+    # Conditional styling for urgent alerts
     urgent_styles = "bg-error/10 border-l-8 border-error shadow-lg" if is_urgent else "bg-base-100"
+    
     return Div(
-        # Header with Urgent Badge
         DivLAligned(
             Div(f"Session: {s.session_id[:8]}", cls="font-mono text-sm font-bold"),
             Span("URGENT", cls="badge badge-error ml-2") if is_urgent else Span()

@@ -4,7 +4,7 @@ from starlette.staticfiles import StaticFiles
 from uuid import uuid4
 from datetime import datetime
 from starlette.middleware.sessions import SessionMiddleware
-from forms import nurse_form, beneficiary_form, beneficiary_controls, login_card, signup_card, summary_message_fragment, nurse_case_card, urgent_counter, emergency_header
+from components import layout, hdrs, nurse_form, beneficiary_form, beneficiary_controls, login_card, signup_card, summary_message_fragment, nurse_case_card, urgent_counter, emergency_header
 from helpers import hash_password, verify_password, login_required, get_session_or_404, require_role, init_db, get_db, generate_intake_summary, get_beneficiary_ui_updates
 from models import ChatSession, Message, ChatState, IntakeAnswer
 
@@ -14,24 +14,7 @@ init_db()
 
 
 # -- App setup ---
-hdrs = Theme.blue.headers()
-hdrs.append(Script(src="https://unpkg.com/htmx.org@1.9.12"))
-hdrs.append(Script("""
-    document.addEventListener("htmx:afterSwap", function (e) {
-        // Auto-scroll chat window
-        const chat = document.getElementById("chat-window");
-        if (chat) {
-            chat.scrollTop = chat.scrollHeight;
-        }
 
-        // Auto-focus input if present
-        const input = document.getElementById("chat-input");
-        if (input) {
-            input.focus();
-        }
-    });
-    """
-))
 app = FastHTML(hdrs=hdrs, static_dir="static")
 app.add_middleware(SessionMiddleware, secret_key="secret-session-key")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -57,42 +40,8 @@ INTAKE_SCHEMA = [
 ]
 
 
-# --- UI helpers ---
 
-def layout(request, content, page_title="MedAiChat"):
-    user = request.session.get("user")
-    role = request.session.get("role")
 
-    logo = A("MedAIChat", href="/", cls="text-xl font-bold text-white")
-
-    links = []
-
-    if not user:
-        links.append(A("Login", href="/login", cls=ButtonT.primary))
-        links.append(A("Signup", href="/signup", cls=ButtonT.secondary))
-    else:
-        links.append(Span(f"Role: {role.capitalize()}", cls="text-white mr-4"))
-        links.append(A("Logout", href="/logout", cls=ButtonT.secondary))
-
-    nav = Nav(
-        Div(logo),
-        Div(*links, cls="flex gap-2"),
-        cls="flex justify-between bg-blue-600 px-4 py-2"
-    )
-    return Html(
-        Head(
-            *hdrs,
-            Title(page_title)
-            ),
-            Body(
-                Div(
-                    Header(nav),
-                    Div(Container(content, id="content", cls="mt-10"), cls="flex-1"),
-                    Footer("© 2025 MedAIChat", cls="bg-blue-600 text-white p-4"),
-                    cls="min-h-screen flex flex-col"
-                )
-            )
-    )
 
 
 
@@ -205,7 +154,8 @@ async def complete_intake(s: ChatSession):
         s, 
         "Thank you. Your intake is complete. A nurse will review your case shortly."
     )
-
+    
+   
 def urgent_bypass(s: ChatSession): 
     s.state = ChatState.URGENT
     system_message(

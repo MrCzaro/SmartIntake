@@ -5,7 +5,7 @@ from inspect import iscoroutinefunction
 from fasthtml.common import Redirect, HTTPException
 from starlette.requests import Request
 from models import ChatSession
-from forms import beneficiary_controls, beneficiary_form, emergency_header
+from components import beneficiary_controls, beneficiary_form, emergency_header
 
 from dotenv import load_dotenv
 from google import genai
