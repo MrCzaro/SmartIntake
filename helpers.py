@@ -5,6 +5,7 @@ from inspect import iscoroutinefunction
 from fasthtml.common import Redirect, HTTPException
 from starlette.requests import Request
 from models import ChatSession
+from forms import beneficiary_controls, beneficiary_form, emergency_header
 
 from dotenv import load_dotenv
 from google import genai
@@ -177,3 +178,27 @@ def login_required(route_func):
     
     return wrapper
 
+def get_beneficiary_ui_updates(sid: str, s: ChatSession):
+    """
+    Generates and prepares out-of-band (OOB) UI components for the beneficiary views.
+    
+    This helper centralizes the logic for updating the persistent UI elements
+    (Header, Message Form, and Status Controls) that need to stay in sync with the
+    ChatSession state (e.g., transitioning from INTAKE or URGENT).
+    
+    Args:
+        sid (str) : The unique session ID for the chat.
+        s(ChatSession): The current chat session object containing state and history.
+        
+    Returns:
+        tuple: A tuple containing (header, form, controls), each with 
+        the 'hx-swap-obb' attribute set to 'true'.
+    """
+    # Generate the components
+    header = emergency_header(s)
+    form = beneficiary_form(sid, s)
+    controls = beneficiary_controls(s)
+    # Mark them all for OOB swapping
+    for component in (header, form, controls):
+        component.attrs["hx-swap-oob"] = "true"
+    return header, form, controls

@@ -5,7 +5,7 @@ from uuid import uuid4
 from datetime import datetime
 from starlette.middleware.sessions import SessionMiddleware
 from forms import nurse_form, beneficiary_form, beneficiary_controls, login_card, signup_card, summary_message_fragment, nurse_case_card, urgent_counter, emergency_header
-from helpers import hash_password, verify_password, login_required, get_session_or_404, require_role, init_db, get_db, generate_intake_summary
+from helpers import hash_password, verify_password, login_required, get_session_or_404, require_role, init_db, get_db, generate_intake_summary, get_beneficiary_ui_updates
 from models import ChatSession, Message, ChatState, IntakeAnswer
 
 
@@ -467,19 +467,9 @@ async def beneficiary_send(request, sid: str):
                     )      
                 )
     
-    header = emergency_header(s)
-    header.attrs["hx-swap-oob"] = "true"
-    
-    controls = beneficiary_controls(s)
-    controls.attrs["hx-swap-oob"] = "true"
-    
-    form_update = beneficiary_form(sid, s)
-    form_update.attrs["hx-swap-oob"] = "true"
-            
-    return (Div(
-        *[chat_bubble(m, role) for m in s.messages], 
-        id = "chat-messages"
-        ), header, controls, form_update)
+    chat = Div(*[chat_bubble(m, role) for m in s.messages], id = "chat-messages")
+    ui_bundle = get_beneficiary_ui_updates(sid, s)
+    return chat, *ui_bundle
 
 
 @rt("/beneficiary/{sid}/emergency")
@@ -495,16 +485,9 @@ def beneficiary_emergency(request, sid: str):
     role = request.session.get("role")
     chat = Div(*[chat_bubble(m, role) for m in s.messages], id="chat-messages")
     
-    header = emergency_header(s)
-    header.attrs["hx-swap-oob"] = "true"
-    
-    controls = beneficiary_controls(s)
-    controls.attrs["hx-swap-oob"] = "true"
-    
-    form_update = beneficiary_form(sid, s)
-    form_update.attrs["hx-swap-oob"] = "true"
+    ui_bundle = get_beneficiary_ui_updates(sid, s)
 
-    return chat, header, controls, form_update
+    return chat, *ui_bundle
 
 
 ###  Nurse Part 
