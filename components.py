@@ -2,6 +2,7 @@ from fasthtml.common import *
 from monsterui.all import *
 from typing import Any
 from models import *
+from config import *
 
 
 hdrs = Theme.blue.headers()
@@ -59,20 +60,9 @@ def layout(request, content, page_title="MedAiChat"):
         cls="flex justify-between bg-blue-600 px-4 py-2"
     )
     return Html(
-        Head(
-            *hdrs,
-            Title(page_title)
-            ),
-            Body(
-                Div(
-                    Header(nav),
-                    Div(Container(content, id="content", cls="mt-10"), cls="flex-1"),
-                    Footer("© 2025 MedAIChat", cls="bg-blue-600 text-white p-4"),
-                    cls="min-h-screen flex flex-col"
-                )
-            )
-    )
-
+        Head(*hdrs,Title(page_title)),
+        Body(Div(Header(nav), Div(Container(content, id="content", cls="mt-10"), cls="flex-1"),
+                    Footer("© 2025 MedAIChat", cls="bg-blue-600 text-white p-4"), cls="min-h-screen flex flex-col")))
 
 def urgent_counter(count: int):
     """
@@ -89,12 +79,8 @@ def urgent_counter(count: int):
     """
 
     badge_cls = "badge-error" if count > 0 else "badge-ghost"
-    return Div(
-        f"Urgent Cases: {count}",
-        id="urgent-count",
-        cls=f"badge {badge_cls} p-4 font-bold",
-        hx_swap_oob="true" if count is not None else "false"
-    )
+    return Div( f"Urgent Cases: {count}", id="urgent-count", cls=f"badge {badge_cls} p-4 font-bold",
+        hx_swap_oob="true" if count is not None else "false")
 
 def nurse_case_card(s: ChatSession):
     """
@@ -129,18 +115,134 @@ def nurse_case_card(s: ChatSession):
         ),
         cls=f"card {urgent_styles} shadow p-4 transition-all duration-300"
     )
+def chat_bubble(msg: Message, user_role: str):
+    """
+    Renders an individual message bubble within the chat interface.
+    
+    This component dynamically handles three distinc message types:
+        1. Summaries: Only visible to users with the 'nurse' role.
+        2. System Messages: Centered, gray, and italicized for status updates.
+        3. Chat Messages: Aligned and colored based on the sender's role.
+        
+    Args:
+        msg (Message): The message object containing content, role, and phase.
+        user_role (str): The role of the current viewer, used for premission checks.
+    
+    Returns: 
+        Union[Div, Span]: A styled message component or an empty Span if unauthorized."""
+    
+    if msg.phase == "summary":
+        if user_role == "nurse":
+            return summary_message_fragment(msg.content)
+        else: return Span()
+        
+    align = {
+        "beneficiary": "chat-start",
+        "nurse": "chat-end",
+        "assistant": "chat-middle",
+    }.get(msg.role, "chat-start")
 
-def summary_message_fragment(content : str):
-    return Card(
-        DivLAligned(
-            UkIcon("clipboard-list", cls="mr-2 text-primary"),
-            H4("Intake Summary", cls=TextPresets.bold_sm)
-        ),
-        P(content, cls=TextPresets.muted_sm),
-        cls=(CardT.secondary, "my-4 border-l-4 border-primary")
+    color = {
+        "beneficiary": "chat-bubble-neutral",
+        "nurse": "chat-bubble-primary",
+        "assistant": "chat-bubble-info",
+    }.get(msg.role, "chat-bubble-neutral")
+
+    if msg.phase == "system":
+        return Div(Div(msg.content, cls="text-center text-sm text-gray-500 italic"),cls="my-2")
+
+    return Div(Div(msg.role.capitalize(), cls="chat-header"),Div(msg.content, cls=f"chat-bubble {color}"), cls=f"chat {align}")
+
+def chat_window(messages: list[Message], sid: str, user_role: str):
+    """
+    Creates a scrollable container for the entire message history.
+    
+    This component includes built-in HTMX pooling logic, causing it to automatically
+    refresh its content from the sever every 2 seconds.
+    It manages the mapping of message objects to their respective bubble components.
+    
+    Args:
+        messages (list[Message]): The list of messages to be displayed.
+        sid (str): The unique session ID for the polling endpoint.
+        user_role (str): The role of the current viewer to pass to chat_bubble.
+        
+    Returns:
+        Div: An auto-pooling container with a fixed height and scrollable overflow.
+    """
+    return Div(Div(*[chat_bubble(m, user_role) for m in messages], id="chat-messages"),
+        id="chat-window",
+        cls="flex flex-col gap-2 overflow-y-auto h-[60vh]",
+        hx_get=f"/chat/{sid}/poll",
+        hx_trigger="every 2s",
+        hx_swap="innerHTML",
+        hx_target="#chat-messages"
     )
 
+def beneficiary_chat_fragment(sid: str, s:ChatSession, user_role: str):
+    """
+    Assembles the complete chat interface for a beneficiary.
+
+    This top-level fragment combines the chat history window, the message 
+    input form, and the state-dependent controls (like 'Please answer all intake questions').
+
+    Args:
+        sid (str): The unique session ID.
+        s (ChatSession): The current state and data of the chat session.
+        user_role (str): The current user's role.
+
+    Returns:
+        Div: A single container encapsulating the full beneficiary view.
+    """
+    return Div(chat_window(s.messages, sid, user_role), beneficiary_form(sid,s), beneficiary_controls(s), id="chat-fragment")
+
+def nurse_chat_fragment(sid: str, s:ChatSession, user_role):
+    """
+    Assembles the complete chat interface for a nurse.
+    
+    Similar to the beneficiary fragment, but provides the nurse-specific
+    form and omits the intake progress controls.
+    
+    Args:
+        sid (str): The unique session ID.
+        s (ChatSession): The current state and data of the chat session.
+        user_role (str): The current user's role.
+        
+    Returns:
+        Div: A single container encapsulating the full nurse view.
+    """
+    return Div(chat_window(s.messages, sid, user_role), nurse_form(sid), id="chat-fragment")
+
+
+def summary_message_fragment(content : str):
+    """
+    Renders a specialized UI card for displaying an AI-generated intake summary.
+    
+    This component uses a clipboard icon and distinct styling to separate the medical summary
+    from standard chat bubbles, making it easier for nurses to identify key information.
+    
+    Args:
+        content (str): The markdown or plain text content of the summary.
+    
+    Returns:
+        Card: A styled MonsterUI Card component with a primary accent border.
+    """
+    return Card(DivLAligned(UkIcon("clipboard-list", cls="mr-2 text-primary"), H4("Intake Summary", cls=TextPresets.bold_sm)),
+        P(content, cls=TextPresets.muted_sm), cls=(CardT.secondary, "my-4 border-l-4 border-primary"))
+
 def emergency_header(s: ChatSession):
+    """
+    Generates the sticky top navigation bar for the beneficiary chat interface.
+    
+    The header dynamically switches between two states:
+        1. Normal: Displays the 'EMERGENCY' button to allow manual escalation.
+        2. Urgent: Displays a pulsing notification indicating a nurse is on the way.
+        
+    Args:
+        s (ChatSession): The current session data used to determine urgency status.
+        
+    Returns: 
+        Div: A navbar component with a unique ID for HTMX Out-of-Band (OOB) updates.
+    """
     is_urgent = s.state == ChatState.URGENT
 
     status_content = Span("🆘 NURSE NOTIFIED - Responding Shortly", cls="font-bold animate-pulse") if is_urgent else \
@@ -152,12 +254,8 @@ def emergency_header(s: ChatSession):
                            cls="btn btn-error btn-sm lg:btn-md")
     header_cls = "navbar bg-error/20 border-b-4 border-error" if is_urgent else "navbar bg-base-100 border-b-2 border-base-300"
 
-    return Div(
-        H3("MedAIChat", cls="text-xl font-bold"),
-        status_content,
-        id = "chat-header",
-        cls=f"{header_cls} mb-4 flex justify-between px-4 sticky top-0 z-50" 
-    )
+    return Div(H3("MedAIChat", cls="text-xl font-bold"), status_content,id = "chat-header",
+               cls=f"{header_cls} mb-4 flex justify-between px-4 sticky top-0 z-50")
 
 
        
@@ -167,7 +265,6 @@ def beneficiary_form(sid: str, s: ChatSession) -> Any:
     
     Sends a chat message to the backend using HTMX and updates
     the chat window with the server-rendered response.
-    
     
     Args:
         sid (str): Chat session ID.
@@ -180,36 +277,14 @@ def beneficiary_form(sid: str, s: ChatSession) -> Any:
     if is_escalated:
         sos_btn = Span("✅ Notified", cls="btn btn-ghost no-animation text-success btn-square")
     else:
-        sos_btn = Button(
-                "🆘",
-                hx_post=f"/beneficiary/{sid}/emergency",
-                hx_target="#chat-messages",
-                hx_confirm="Escalate to a nurse?",
-                hx_on__htmx_config_request="this.setAttribute('disabled', 'disabled')",
-                type="button", # Important: 'button' so it doesn't submit the text form
-                cls="btn btn-error btn-square",
-                title="Emergency Escalation"
-            )
+        sos_btn = Button("🆘", hx_post=f"/beneficiary/{sid}/emergency", hx_target="#chat-messages", hx_confirm="Escalate to a nurse?",
+                hx_on__htmx_config_request="this.setAttribute('disabled', 'disabled')", type="button",  cls="btn btn-error btn-square", title="Emergency Escalation")
 
-    return Form(
-        Div(
-            sos_btn,
-            Input(
-                name="message",
-                id="chat-input",
-                placeholder="Type your message...",
-                cls="input input-bordered w-full"
-            ),
+    return Form(Div(sos_btn,
+            Input(name="message", id="chat-input", placeholder="Type your message...", cls="input input-bordered w-full"),
             Button("Send", cls="btn btn-primary mt-2", type="submit", hx_disable_elt="this"),
-            cls="flex gap-2 p-4 bg-base-200 border-t items-center"
-        ),
-        id="beneficiary-input-form",
-        hx_post=f"/beneficiary/{sid}/send",
-        hx_target="#chat-messages",
-        hx_swap="innerHTML",
-        hx_on="htmx:afterRequest: this.reset()",
-        method="post"
-    )
+            cls="flex gap-2 p-4 bg-base-200 border-t items-center"), id="beneficiary-input-form", hx_post=f"/beneficiary/{sid}/send",
+            hx_target="#chat-messages", hx_swap="innerHTML", hx_on="htmx:afterRequest: this.reset()", method="post")
 
 
 def beneficiary_controls(s: ChatSession) -> Any:
@@ -243,7 +318,7 @@ def beneficiary_controls(s: ChatSession) -> Any:
 
 
 def nurse_form(sid: str) -> Any:
-    """
+    """ 
     Render the nurse reply form for an active chat session.
     
     Sends a nurse response and updates the chat window using HTMX.
@@ -254,16 +329,11 @@ def nurse_form(sid: str) -> Any:
     Returns:
         Any: FastHTML Form component.
     """
-    return Form(
-        Input(type="hidden", name="sid", value=sid),
+    return Form(Input(type="hidden", name="sid", value=sid),
         Input(name="message", id="chat-input", placeholder="Reply to beneficiary...", cls="input input-bordered w-full"),
         Button("Send", cls="btn btn-primary mt-2", type="submit", hx_disable_elt="this"),
-        hx_post=f"/nurse/{sid}/send",
-        hx_target="#chat-messages",
-        hx_swap="innerHTML",
-        hx_on="htmx:afterRequest: this.reset()",
-        method="post"
-    )
+        hx_post=f"/nurse/{sid}/send", hx_target="#chat-messages",hx_swap="innerHTML",
+        hx_on="htmx:afterRequest: this.reset()", method="post") 
 
 
 
@@ -281,35 +351,12 @@ def login_card(error_message: str | None = None, prefill_email: str = "") -> Any
     """
     return Card(
         CardHeader(H3("Login")),
-        CardBody(
-            *([P(error_message, cls="bg-red-600 font-semibold")] if error_message else []),
-            Form(
-                LabelInput(
-                    "Email",
-                    name="email", 
-                    value=prefill_email,
-                    placeholder="user@example.com",
-                ),
-                LabelInput(
-                    "Password",
-                    name="password",
-                    type="password",
-                    placeholder="Enter your password"
-                ),
-                Div(
-                    Button(
-                        "Login",
-                        cls=ButtonT.primary + " rounded-lg py-2 px-4 md:py-3 md:px-5 text-sm md:text-base",
-                        type="submit"
-                        ),
-                        cls="mt-4"
-                ),
-                action="/login",
-                method="post"
-            )
-        ),
-        CardFooter("Do not have an account? ", A(B("Sign up"), href="/signup"))
-    )
+        CardBody(*([P(error_message, cls="bg-red-600 font-semibold")] if error_message else []),
+            Form(LabelInput("Email", name="email", value=prefill_email, placeholder="user@example.com",),
+                LabelInput("Password", name="password", type="password", placeholder="Enter your password"),
+                Div(Button("Login", cls=ButtonT.primary + " rounded-lg py-2 px-4 md:py-3 md:px-5 text-sm md:text-base", type="submit"),cls="mt-4"),
+                action="/login",method="post")),
+        CardFooter("Do not have an account? ", A(B("Sign up"), href="/signup")))
 
 
 def signup_card(error_message: str | None = None, prefill_email: str = "") -> Any:
@@ -328,47 +375,51 @@ def signup_card(error_message: str | None = None, prefill_email: str = "") -> An
     
     return Card(
         CardHeader(H3("Create Account")),
-        CardBody(
-            *([P(error_message, cls="text-red-600 font-semibold")] if error_message else []),
-            Form(
-                LabelInput(
-                    "Email",
-                    name="email",
-                    value=prefill_email,
-                    placeholder="user@example.com"
-                ),
-                LabelInput(
-                    "Password",
-                    name="password",
-                    type="password",
-                    placeholder="Choose a password"
-                ),
-                LabelInput(
-                    "Repeat Password",
-                    name="repeat_password",
-                    type="password",
-                    placeholder="Repeat password"
-                ),
-                Div(
-                    Label("Role"),
-                    Select(
-                        Option("Beneficiary", value="beneficiary"),
-                        Option("Nurse", value="nurse"),
-                        name="role",
-                        cls="select select-bordered w-full"
-                    ),
-                    cls="mt-2"
-                ),
-                Div(
-                    Button("Sign Up", cls=ButtonT.primary + " rounded-lg py-2 px-4 md:py-3 md:px-5 text-sm md:text-base"),
-                ),
-                action="/signup",
-                method="post"
-            )
-        ),
-        CardFooter(
-            "Already have an account? ",
-            A(B("Login"), href="/login")
-        )
-    )
+        CardBody(*([P(error_message, cls="text-red-600 font-semibold")] if error_message else []),
+            Form(LabelInput( "Email",name="email", value=prefill_email, placeholder="user@example.com"),
+                LabelInput("Password",name="password",type="password",placeholder="Choose a password"),
+                LabelInput("Repeat Password", name="repeat_password", type="password", placeholder="Repeat password"),
+                Div(Label("Role"), Select(Option("Beneficiary", value="beneficiary"),
+                        Option("Nurse", value="nurse"),name="role",cls="select select-bordered w-full"),cls="mt-2"),
+                Div(Button("Sign Up", cls=ButtonT.primary + " rounded-lg py-2 px-4 md:py-3 md:px-5 text-sm md:text-base"),),
+                action="/signup", method="post")),
+        CardFooter("Already have an account? ",
+            A(B("Login"), href="/login")))
 
+async def generate_intake_summary(s: ChatSession):
+    """
+    Asynchronously generates a medical summary of the beneficiary's intake answers.
+    
+    This function complies all recorded intake responses and sends them to a Gemini generative model.
+    It uses a tiered fallback system, attempting newer models first and falling back to older versions
+    if an error occurs. The resulting summary is stored directly in the ChatSession object.
+    
+    Args:
+        s (ChatSession): The session containing the intake answers to be summarized.
+        
+    Note: 
+        Strict system instructions are provided to ensure the AI remains purely descriptive 
+        and avoids providing any medical advice or diagnoses.
+    """
+    # Prepare the data string from intake answers
+    data = "\n".join([f"Question: {i.question}\nAnswer: {i.answer}" for i in s.intake.answers])
+    instructions = """You are a medical intake assistant. 
+    Your only task is to summarize the patient's answers into a short, professional note for a nurse. 
+    Describe the symptoms and current situation clearly. 
+    Stricly forbidden: Do not provide medical advice, suggestion, diagnoses, or care plans."""
+    models  = ["models/gemini-2.5-flash", "models/gemini-2.0-flash", "models/gemini-1.5-flash"]
+    # Call the Gemini API
+    for model in models:
+        try:
+
+            response = await client.aio.models.generate_content(
+                model = model,
+                contents=f"Please summarize these patient answers:\n\n{data}",
+                config={"system_instruction" : instructions})
+            s.summary = response.text
+            return
+        except Exception as e:
+            print(f"Model {model} failed: {e}")
+            continue # try next model from the models list
+    if not s.summary:
+        s.summary = "System Note: Automated summary could not be generated. Please review patient responses manually."

@@ -4,176 +4,23 @@ from starlette.staticfiles import StaticFiles
 from uuid import uuid4
 from datetime import datetime
 from starlette.middleware.sessions import SessionMiddleware
-from components import layout, hdrs, nurse_form, beneficiary_form, beneficiary_controls, login_card, signup_card, summary_message_fragment, nurse_case_card, urgent_counter, emergency_header
-from helpers import hash_password, verify_password, login_required, get_session_or_404, require_role, init_db, get_db, generate_intake_summary, get_beneficiary_ui_updates
-from models import ChatSession, Message, ChatState, IntakeAnswer
+from components import * 
+from logic import *
+from models import * 
+from auth import *
+from database import *
 
 
 # Initialize DB on startup
 init_db()
 
-
 # -- App setup ---
-
 app = FastHTML(hdrs=hdrs, static_dir="static")
 app.add_middleware(SessionMiddleware, secret_key="secret-session-key")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 rt = app.route
-
-
-
 sessions : dict[str, ChatSession] = {}
 
-
-# Globals
-INTAKE_SCHEMA = [
-    {"id": "chief_complaint", "q": "What is your main issue today?"},
-    {"id": "location", "q": "Where is the problem located?"},
-    {"id": "onset", "q": "When did it start?"},
-    {"id": "severity", "q": "How severe is it from 1 to 10?"},
-    {"id": "relieving_factors", "q": "What makes it better?"},
-    {"id": "aggravating_factors", "q": "What makes it worse?"},
-    {"id": "fever", "q": "Have you had a fever?"},
-    {"id": "medications", "q": "What medications are you currently taking?"},
-    {"id": "conditions", "q": "Any chronic conditions?"},
-    {"id": "prior_contact", "q": "Have you contacted us about this before?"}
-]
-
-
-
-
-
-
-
-def chat_bubble(msg: Message, user_role: str):
-# If it's a summary and the viewer is not a nurse return nothing
-    if msg.phase == "summary":
-        if user_role == "nurse":
-            return summary_message_fragment(msg.content)
-        else: return Span()
-  
-        
- 
-    align = {
-        "beneficiary": "chat-start",
-        "nurse": "chat-end",
-        "assistant": "chat-middle",
-    }.get(msg.role, "chat-start")
-
-    color = {
-        "beneficiary": "chat-bubble-neutral",
-        "nurse": "chat-bubble-primary",
-        "assistant": "chat-bubble-info",
-    }.get(msg.role, "chat-bubble-neutral")
-
-    # System messages are special: centered + italic
-    if msg.phase == "system":
-        return Div(
-            Div(
-                msg.content,
-                cls="text-center text-sm text-gray-500 italic"
-            ),
-            cls="my-2"
-        )
-
-    return Div(
-        Div(msg.role.capitalize(), cls="chat-header"),
-        Div(msg.content, cls=f"chat-bubble {color}"),
-        cls=f"chat {align}"
-    )
-
-    
-
-
-def chat_window(messages: list[Message], sid: str, user_role: str):
-    return Div(
-        Div(
-            *[chat_bubble(m, user_role) for m in messages],
-            id = "chat-messages"
-        ),
-        id="chat-window",
-        cls="flex flex-col gap-2 overflow-y-auto h-[60vh]",
-        hx_get=f"/chat/{sid}/poll",
-        hx_trigger="every 2s",
-        hx_swap="innerHTML",
-        hx_target="#chat-messages"
-    )
-
-def beneficiary_chat_fragment(sid: str, s:ChatSession, user_role: str):
-    return Div(
-        chat_window(s.messages, sid, user_role),
-        beneficiary_form(sid,s),
-        beneficiary_controls(s),
-        id="chat-fragment"
-    )
-
-def nurse_chat_fragment(sid: str, s:ChatSession, user_role):
-    return Div(
-        chat_window(s.messages, sid, user_role),
-        nurse_form(sid),
-        id="chat-fragment"
-    )
-
-def intake_finished(s: ChatSession):
-    return s.intake.current_index >= len(INTAKE_SCHEMA)
-
-def current_intake_question(s: ChatSession) -> str | None:
-    if intake_finished(s): return None
-    return INTAKE_SCHEMA[s.intake.current_index]["q"]
-
-def system_message(s: ChatSession, text: str):
-    s.messages.append(
-        Message(
-            role="assistant",
-            content=text,
-            timestamp=datetime.now(),
-            phase="system"
-        )
-    )
-
-async def complete_intake(s: ChatSession):
-    if s.state != ChatState.INTAKE: return
-    
-    # Generate the intake summary
-    await generate_intake_summary(s)
-    
-    # Add it as a hidden message in the chat history
-    if s.summary:
-        s.messages.append(
-            Message(
-                role="assistant",
-                content=s.summary,
-                timestamp=datetime.now(),
-                phase="summary"
-            )
-        )
-
-    
-    s.state = ChatState.WAITING_FOR_NURSE
-    system_message(
-        s, 
-        "Thank you. Your intake is complete. A nurse will review your case shortly."
-    )
-    
-   
-def urgent_bypass(s: ChatSession): 
-    s.state = ChatState.URGENT
-    system_message(
-        s,
-        "Your message suggests a potentially urgent condition. A nurse has been notified immediately."
-    )
-
-def manual_emergency_escalation(s: ChatSession):
-    s.state = ChatState.URGENT
-    system_message(
-        s,
-        "🚨 Emergency button pressed. A nurse has been notified immediately." )
-def nurse_joins(s: ChatSession):
-    if s.state not in (ChatState.WAITING_FOR_NURSE, ChatState.URGENT):
-        return
-    
-    s.state = ChatState.NURSE_ACTIVE
-    system_message(s, "A nurse has joined your case.")
 
 # --- Routes ---
 @rt("/favicon.ico")
@@ -377,46 +224,22 @@ async def beneficiary_send(request, sid: str):
         )
 
     is_message_urgent = any(flag in message.lower() for flag in red_flags)
-    s.messages.append(
-        Message(
-            role="beneficiary", 
-            content=message, 
-            timestamp=datetime.now(),
-            phase = "intake" if s.state == ChatState.INTAKE else "chat"
-        )
-    )
+    s.messages.append(Message(role="beneficiary", content=message, timestamp=datetime.now(), 
+                              phase = "intake" if s.state == ChatState.INTAKE else "chat"))
     
     if s.state == ChatState.INTAKE:
         if is_message_urgent:
             urgent_bypass(s)
         else:
             q = INTAKE_SCHEMA[s.intake.current_index]
-            
             s.intake.answers.append(
-                IntakeAnswer(
-                    question_id=q["id"],
-                    question=q["q"],
-                    answer=message,
-                    timestamp=datetime.now()
-                )
-            )
-
+                IntakeAnswer(question_id=q["id"], question=q["q"], answer=message, timestamp=datetime.now()))
             s.intake.current_index += 1
-
             if intake_finished(s):
                 s.intake.completed = True
                 await complete_intake(s)
-                
             else:
-                s.messages.append(
-                    Message(
-                        role="assistant",
-                        content=current_intake_question(s),
-                        timestamp=datetime.now(),
-                        phase="intake"
-                    )      
-                )
-    
+                s.messages.append(Message(role="assistant", content=current_intake_question(s), timestamp=datetime.now(), phase="intake"))
     chat = Div(*[chat_bubble(m, role) for m in s.messages], id = "chat-messages")
     ui_bundle = get_beneficiary_ui_updates(sid, s)
     return chat, *ui_bundle
@@ -427,14 +250,10 @@ async def beneficiary_send(request, sid: str):
 def beneficiary_emergency(request, sid: str):
     guard = require_role(request, "beneficiary")
     if guard: return guard
-    
     s = get_session_or_404(sessions, sid)
     manual_emergency_escalation(s)
-
-
     role = request.session.get("role")
     chat = Div(*[chat_bubble(m, role) for m in s.messages], id="chat-messages")
-    
     ui_bundle = get_beneficiary_ui_updates(sid, s)
 
     return chat, *ui_bundle
@@ -446,17 +265,8 @@ def beneficiary_emergency(request, sid: str):
 def nurse_dashboard(request):
     guard = require_role(request, "nurse")
     if guard: return guard
-
-    content = Titled(
-        "Nurse Dashboard",
-        Div("Urgent: 0", id="urgent-count", cls="badge badge-ghost"),
-        Div(
-            id="nurse-cases",
-            hx_get="/nurse/poll",
-            hx_trigger="load, every 3s",
-            hx_swap="innerHTML"
-        )
-    )
+    content = Titled( "Nurse Dashboard", Div("Urgent: 0", id="urgent-count", cls="badge badge-ghost"),
+        Div(id="nurse-cases", hx_get="/nurse/poll", hx_trigger="load, every 3s", hx_swap="innerHTML"))
     
     return layout(request, content, page_title = "Nurse Dashboard - MedAIChat")
 
@@ -468,14 +278,8 @@ def nurse_view(request, sid: str):
     if guard: return guard
     role = request.session.get("role")
     s = get_session_or_404(sessions, sid)
-    
-    
     nurse_joins(s)
-    
-    content = Titled(
-        "Nurse Review",
-        nurse_chat_fragment(sid, s, role)
-    )
+    content = Titled("Nurse Review",nurse_chat_fragment(sid, s, role))
     return layout(request, content, page_title  = "Nurse Review - MedAIChat")
 
 
@@ -492,25 +296,10 @@ async def nurse_send(request, sid : str):
     message = form.get("message", "").strip()
 
     if not message:
-        return Div(
-            *[chat_bubble(m, role) for m in s.messages],
-            id="chat-messages"
-        )
+        return Div(*[chat_bubble(m, role) for m in s.messages], id="chat-messages")
     
-    s.messages.append(
-        Message(
-            role="nurse",
-            content=message,
-            timestamp=datetime.now(),
-            phase="chat"
-        )
-    )
-
+    s.messages.append(Message(role="nurse", content=message, timestamp=datetime.now(), phase="chat"))
     nurse_joins(s)
-
-    return Div(
-        *[chat_bubble(m, role) for m in s.messages],
-        id="chat-messages"
-    )
+    return Div(*[chat_bubble(m, role) for m in s.messages],id="chat-messages")
 
 serve()
