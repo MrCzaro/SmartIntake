@@ -54,11 +54,7 @@ def layout(request, content, page_title="MedAiChat"):
         links.append(Span(f"Role: {role.capitalize()}", cls="text-white mr-4"))
         links.append(A("Logout", href="/logout", cls=ButtonT.secondary))
 
-    nav = Nav(
-        Div(logo),
-        Div(*links, cls="flex gap-2"),
-        cls="flex justify-between bg-blue-600 px-4 py-2"
-    )
+    nav = Nav(Div(logo), Div(*links, cls="flex gap-2"), cls="flex justify-between bg-blue-600 px-4 py-2")
     return Html(
         Head(*hdrs,Title(page_title)),
         Body(Div(Header(nav), Div(Container(content, id="content", cls="mt-10"), cls="flex-1"),
@@ -79,8 +75,7 @@ def urgent_counter(count: int):
     """
 
     badge_cls = "badge-error" if count > 0 else "badge-ghost"
-    return Div( f"Urgent Cases: {count}", id="urgent-count", cls=f"badge {badge_cls} p-4 font-bold",
-        hx_swap_oob="true" if count is not None else "false")
+    return Div( f"Urgent Cases: {count}", id="urgent-count", cls=f"badge {badge_cls} p-4 font-bold", hx_swap_oob="true" if count is not None else "false")
 
 def nurse_case_card(s: ChatSession):
     """
@@ -104,17 +99,10 @@ def nurse_case_card(s: ChatSession):
     urgent_styles = "bg-error/10 border-l-8 border-error shadow-lg" if is_urgent else "bg-base-100"
     
     return Div(
-        DivLAligned(
-            Div(f"Session: {s.session_id[:8]}", cls="font-mono text-sm font-bold"),
-            Span("URGENT", cls="badge badge-error ml-2") if is_urgent else Span()
-        ),
+        DivLAligned( Div(f"Session: {s.session_id[:8]}", cls="font-mono text-sm font-bold"), Span("URGENT", cls="badge badge-error ml-2") if is_urgent else Span()),
         Div(f"Last message: {last_msg[:80]}...", cls="text-sm mt-1"),
-        A(
-            "Open case", href=f"/nurse/{s.session_id}",
-            cls="btn btn-primary btn-sm mt-2 w-full"
-        ),
-        cls=f"card {urgent_styles} shadow p-4 transition-all duration-300"
-    )
+        A("Open case", href=f"/nurse/{s.session_id}", cls="btn btn-primary btn-sm mt-2 w-full"),cls=f"card {urgent_styles} shadow p-4 transition-all duration-300")
+
 def chat_bubble(msg: Message, user_role: str):
     """
     Renders an individual message bubble within the chat interface.

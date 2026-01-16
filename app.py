@@ -56,10 +56,7 @@ async def signup_user(request):
             db.close()
             return layout(request, signup_card("User already exists.", email), page_title)
         
-        db.execute(
-            "INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",
-            (email, hash_password(password), role)
-        )
+        db.execute("INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",(email, hash_password(password), role))
         db.commit()
         db.close()
 
@@ -82,10 +79,7 @@ async def login(request):
             return layout(request, login_card("All fields are required.", email), page_title)
         
         db = get_db()
-        cur = db.execute(
-                "SELECT email, password_hash, role FROM users WHERE email = ?",
-                (email,)
-        )
+        cur = db.execute("SELECT email, password_hash, role FROM users WHERE email = ?",(email,))
         user = cur.fetchone()
         db.close()
 
@@ -123,20 +117,10 @@ def index(request):
 @login_required
 def start(request):
     sid = str(uuid4())
-    s = ChatSession(
-        session_id=sid
-    )
+    s = ChatSession(session_id=sid)
 
     first_question = INTAKE_SCHEMA[0]["q"]
-    s.messages.append(
-        Message(
-            role="assistant",
-            content=first_question,
-            timestamp=datetime.now(),
-            phase="intake"
-        )
-    )
-
+    s.messages.append(Message( role="assistant", content=first_question, timestamp=datetime.now(), phase="intake"))
     sessions[sid] = s
 
     return Redirect(f"/beneficiary/{sid}")
@@ -147,10 +131,7 @@ def start(request):
 def poll_chat(request, sid: str):
     role = request.session.get("role")
     s = get_session_or_404(sessions, sid)
-    return Div(
-        *[chat_bubble(m, role) for m in s.messages],
-        id="chat-messages"
-    )
+    return Div(*[chat_bubble(m, role) for m in s.messages],id="chat-messages")
 
 @rt("/nurse/poll")
 @login_required
@@ -163,10 +144,7 @@ def nurse_poll(request):
         ChatState.WAITING_FOR_NURSE : 1,
     }
 
-    ready_sorted = sorted(
-        (s for s in sessions.values() if s.state in priority),
-        key = lambda s: priority.get(s.state, 99)
-    )
+    ready_sorted = sorted((s for s in sessions.values() if s.state in priority),key = lambda s: priority.get(s.state, 99))
 
     if not ready_sorted:
         case = Div("No cases ready.", cls="alert alert-info")
@@ -194,12 +172,7 @@ def beneficiary_view(request, sid: str):
 
     content = Div(
         emergency_header(s),
-        Div(
-            beneficiary_chat_fragment(sid,s, role),
-            cls="container mx-auto p-4"
-            ),
-            cls="min-h-screen bg-base-100"
-        ) 
+        Div(beneficiary_chat_fragment(sid,s, role), cls="container mx-auto p-4"),cls="min-h-screen bg-base-100") 
 
     return layout(request, content, page_title = "Beneficiary Chat - MedAIChat")
 
@@ -224,8 +197,7 @@ async def beneficiary_send(request, sid: str):
         )
 
     is_message_urgent = any(flag in message.lower() for flag in red_flags)
-    s.messages.append(Message(role="beneficiary", content=message, timestamp=datetime.now(), 
-                              phase = "intake" if s.state == ChatState.INTAKE else "chat"))
+    s.messages.append(Message(role="beneficiary", content=message, timestamp=datetime.now(), phase = "intake" if s.state == ChatState.INTAKE else "chat"))
     
     if s.state == ChatState.INTAKE:
         if is_message_urgent:
