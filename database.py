@@ -33,5 +33,19 @@ def init_db() -> None:
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP)
         """
     )
+    # Chat persistence table
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            timestamp TEXT NOT NULL,  -- We'll store ISO format strings
+            phase TEXT NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES sessions (id)
+        )
+    """)
+    
     db.commit()
     db.close()

@@ -411,3 +411,39 @@ async def generate_intake_summary(s: ChatSession):
             continue # try next model from the models list
     if not s.summary:
         s.summary = "System Note: Automated summary could not be generated. Please review patient responses manually."
+
+
+##########
+# Conceptual functions - not used yet
+def close_session_button(sid: str, user_role: str):
+    """
+    Renders a button to trigger the session closure.
+    
+    Args:
+        sid (str): The unique session ID.
+        user_role (str): 'nurse' or 'beneficiary' to determine redirect logic.
+    """
+    return Button("Close Chat", hx_post="f/{user_role}/{sid}/close",
+                  hx_confirm="Are you sure you want to end this chat session?",
+                  cls="btn btn-outline btn-error btn-sm")
+
+
+def past_sessions_table(session_list: list[ChatSession]):
+    """
+    Renders a scannable table of previous medical consultations."""
+    header = Thead(Tr(Th("Date"), Th("Issue"), Th("Status"), Th("Action")))
+
+    rows = []
+    for s in session_list:
+        # We grab the first intake answer as the 'Issue' summary
+        issue = s.intake.answers[0].answer[:30] + "..." if s.intake.answers else "General Inquiry"
+
+        rows.append(Tr(
+            Td(s.messages[0].timestamp.strftime("%Y-%m-%d %H:%M")),
+            Td(issue),
+            Td(Span("Closed", cls="badge badge-ghost")),
+            Td(A("View", href=f"/beneficiary/archieve/{s.session_id}", cls="btn btn-sm btn-primary"))
+        ))
+    
+    return Table(header, Tbody(*rows), cls="table w-full")
+

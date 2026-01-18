@@ -32,6 +32,17 @@ class Message:
     timestamp :  datetime 
     phase : str # intake | system
 
+    @classmethod
+    def from_row(cls, row):
+        """Creates a Message instance from a database row dictionary."""
+        return cls(
+            role=row["role"],
+            content=row["content"],
+            # Converting the string back to a Python datetime object
+            timestamp=datetime.fromisoformat(row["timestamp"]),
+            phase=row["phase"]
+        )
+
 @dataclass
 class IntakeAnswer:
     """
@@ -93,3 +104,14 @@ class ChatSession:
     messages: list[Message] = field(default_factory=list)
     intake : IntakeState = field(default_factory=IntakeState)
     summary: str | None = None
+
+    @classmethod
+    def from_row(cls, row):
+        """Creates a ChatSession 'shell' from a database row dictionary."""
+        return cls(
+            session_id=row["session_id"],
+            # We conver the string back from the DB into our Enum.
+            state=ChatState(row["state"]),
+            summary=row.get("summary"),
+            messages=[]
+        )
