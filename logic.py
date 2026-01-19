@@ -1,8 +1,10 @@
+import sqlite3
 from datetime import datetime
 from typing import Dict
 from fasthtml.common import HTTPException
 from models import ChatSession, ChatState, Message, INTAKE_SCHEMA
 from components import *
+
 
 
 def intake_finished(s: ChatSession) -> bool:
@@ -141,3 +143,65 @@ def get_beneficiary_ui_updates(sid: str, s: ChatSession):
     for component in (header, form, controls):
         component.attrs["hx-swap-oob"] = "true"
     return header, form, controls
+
+### NEW
+def db_create_session(db: sqlite3.Connection, session: ChatSession, first_message: Message):
+    """
+    Atomically creates a new session and its initial message.
+    Args:
+        db (sqlite3.Connection): Open database connection.
+        session (ChatSession): The session to store.
+        first_message (Message): The initial message to store.
+    """
+    try:
+        with db: # Start transaction
+            db.execute("INSERT INTO sessions (id, user_email, state, summary) VALUES (?, ?, ?, ?)",
+                       (session.session_id, session.user_email, session.state.value, session.summary))
+            
+            # Save the First Message
+            db.execute("INSERT INTO messages (session_id, role, content, timestamp, phase) VALUES (?, ?, ?, ? ?)",
+                       session.session_id, first_message.role, first_message.content, first_message.timestamp.isoformat(), first_message.phase)
+        return True
+    except Exception as e:
+        print(f"Databae Error: {e}")
+        return False
+    
+def db_save_message(db: sqlite3.Connection, session_id: str, message: Message):
+    """
+    Saves a chat message to the database.
+    
+    Args:
+        db (sqlite3.Connection): Open database connection.
+        session_id (str): The ID of the session the message belongs to.
+        message (Message): The message to store.
+    """
+    db.execute("INSERT INTO messages (session_id, role, content, timestamp, phase) VALUES (?, ?, ?, ?, ?)",
+               (session_id, message.role, message.content, message.timestamp.isoformat(), message.phase))
+    
+def db_update_session(db: sqlite3.Connection, session_id: str, **kwargs):
+    """
+    Updates specific fields in a session.
+    Usage: db_update_session(db, sid, state=ChatState.COMPLETED, summary="...")
+    """
+    if not kwargs:
+        return
+    
+    # Build dynamically the SET part of the SQL string e.g., "state =?, summary =?"
+    keys = [f"{k} = ?" for k in kwargs.keys()]
+    query = f"UPDATE sessions SET {', '.join(keys)} WHERE id = ?"
+
+    # Extract values and handle Enums automatically
+    values = [v.value if hasattr(v, 'value') else v for v in kwargs.values()]
+    values.append(session_id)
+    
+    db.execute(query, values)
+
+
+def db_get_nurse_archive(db: sqlite3.Connection) -> list[ChatSession]:
+    """
+    Fetches all sessions that are ready for review or completed.
+    Sorted by the most recent activity first.
+    """
+    rows = db.execute("SELECT * FROM sessions WHERE state !-= 'intake' ORDER BY id DESC").fetchall()
+
+    return [ChatSession.from_row(row) for row in rows]

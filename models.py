@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -32,14 +33,24 @@ class Message:
     timestamp :  datetime 
     phase : str # intake | system
 
+    @property
+    def display_time(self) -> str:
+        """Returns the timestamp formatted for the UI  (e.g '2026-01-01 15:00")"""
+        return self.timestamp.strftime("%Y-%m-%d %H:%M")
     @classmethod
     def from_row(cls, row):
-        """Creates a Message instance from a database row dictionary."""
+        """Rehydrates a Message instance from a database row dictionary with a safety check on the timestamp."""
+        try:
+            ts = datetime.fromisoformat(row["timestamp"])
+        except (ValueError, TypeError):
+            ts = datetime.now()  # Fallback to current time if parsing fails
+            print(f"Warning: Corrupt timestamp found in session {row.get('session_id')}")
+        
         return cls(
             role=row["role"],
             content=row["content"],
             # Converting the string back to a Python datetime object
-            timestamp=datetime.fromisoformat(row["timestamp"]),
+            timestamp=ts,
             phase=row["phase"]
         )
 
@@ -100,18 +111,29 @@ class ChatSession:
     the intake phase.
     """
     session_id : str
+    user_email : str
     state : ChatState = ChatState.INTAKE 
     messages: list[Message] = field(default_factory=list)
     intake : IntakeState = field(default_factory=IntakeState)
     summary: str | None = None
+    is_read : bool = False
 
     @classmethod
     def from_row(cls, row):
         """Creates a ChatSession 'shell' from a database row dictionary."""
+        # Handle the Intake JSON
+        raw_json = row.get("intake_json")
+        try:
+            intake_data = json.loads(raw_json if raw_json else "{}")
+        except (json.JSONDecodeError, TypeError):
+            intake_data = {}
+        
         return cls(
             session_id=row["session_id"],
+            user_email=row.get["user_email"],
             # We conver the string back from the DB into our Enum.
             state=ChatState(row["state"]),
             summary=row.get("summary"),
+            intake=bool(row.get("is_read", 0)),
             messages=[]
         )
