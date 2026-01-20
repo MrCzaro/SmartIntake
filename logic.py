@@ -196,7 +196,6 @@ def db_update_session(db: sqlite3.Connection, session_id: str, **kwargs):
     
     db.execute(query, values)
 
-
 def db_get_nurse_archive(db: sqlite3.Connection) -> list[ChatSession]:
     """
     Fetches all sessions that are ready for review or completed.
@@ -205,3 +204,17 @@ def db_get_nurse_archive(db: sqlite3.Connection) -> list[ChatSession]:
     rows = db.execute("SELECT * FROM sessions WHERE state !-= 'intake' ORDER BY id DESC").fetchall()
 
     return [ChatSession.from_row(row) for row in rows]
+
+def db_get_session(db: sqlite3.Connection, sid: str) -> ChatSession | None:
+    """
+    Retrieves a single session object by its ID.
+    """
+    row = db.execute("SELECT * FROM session WHERE id = ?", (sid,)).fetchone()
+    return ChatSession.from_row(row) if row else None
+
+def db_get_messages(db: sqlite3.Connection, sid: str) -> list[Message]:
+    """
+    Retrieves all messages for a session, ordered chronologically.
+    """
+    rows = db.execute("SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (sid,)).fetchall()
+    return [Message.from_row(row) for row in rows]

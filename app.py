@@ -274,4 +274,17 @@ async def nurse_send(request, sid : str):
     nurse_joins(s)
     return Div(*[chat_bubble(m, role) for m in s.messages],id="chat-messages")
 
+
+# New
+@rt("/nurse/session/{sid}")
+def get_session_detail(request, sid: str, db : sqlite3.Connection):
+    guard = require_role(request, "nurse")
+    if guard: return guard
+    
+    session_data = db_get_session(db, sid)
+    messages = db_get_messages(db, sid)
+
+    return render_nurse_review(session_data, messages)
+    
+
 serve()

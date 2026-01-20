@@ -447,3 +447,36 @@ def past_sessions_table(session_list: list[ChatSession]):
     
     return Table(header, Tbody(*rows), cls="table w-full")
 
+def session_row(s: ChatSession):
+    """
+    Renders a single row in the nurse's archive table.
+    Highlights unread sessions to prioritize patient safety.
+    """
+    row_style = "background-color: #f0f8ff;" if not s.is_read else ""
+
+    return Tr(style=row_style)(
+        Td(s.user_email),
+        Td(s.state.value.upper()),
+        Td(s.intake.get("chief_complaint", "N/A")),
+        Td(A("Review", href=f"/nurse/session/{s.session_id}", cls="button"))
+    )
+
+def render_nurse_review(session_data: dict[str, Any], messages: list[Message]):
+    """
+    Creates the full HTML page for the nurse to review a case.
+    """
+    return Titled(f"Review: {session_data.user_email}",
+                  Card(
+                      H3("Patient Intake Data"),
+                      Ul(*[Li(f"{k.capitalize()}: {v}") for k, v in session_data.intake.items()])
+                  ),
+                  Div(id="chat-history")(
+                      *[chat_bubble(m, "nurse") for m in messages]
+                  ),
+                  # A place for the nurse to write their own summary/notes
+                  Form(action=f"/nurse/session/{session_data.session_id}/finalize")(
+                      Textarea(name="nurse_summary", placeholder="Enter clinical notes ..."),
+                      Button("Finalize Review")
+                  ))
+
+# add post_finalize route 
