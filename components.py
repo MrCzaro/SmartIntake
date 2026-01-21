@@ -77,6 +77,7 @@ def urgent_counter(count: int):
     badge_cls = "badge-error" if count > 0 else "badge-ghost"
     return Div( f"Urgent Cases: {count}", id="urgent-count", cls=f"badge {badge_cls} p-4 font-bold", hx_swap_oob="true" if count is not None else "false")
 
+# temp
 def nurse_case_card(s: ChatSession):
     """
     Renders a preview card for a specific chat session in the nurse dashboard.
@@ -479,4 +480,3 @@ def render_nurse_review(session_data: dict[str, Any], messages: list[Message]):
                       Button("Finalize Review")
                   ))
 
-# add post_finalize route 

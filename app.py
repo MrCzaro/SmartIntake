@@ -115,43 +115,57 @@ def index(request):
 # Start Session
 @rt("/start")
 @login_required
-def start(request):
+def start(request, db: sqlite3.Connection):
     sid = str(uuid4())
-    s = ChatSession(session_id=sid)
+    email = request.session.get("user")
 
+    # Create new session
+    s = ChatSession(session_id=sid, user_email=email)
+
+    # Create first message
     first_question = INTAKE_SCHEMA[0]["q"]
-    s.messages.append(Message( role="assistant", content=first_question, timestamp=datetime.now(), phase="intake"))
-    sessions[sid] = s
+    msg = Message(role="assistant", content=first_question, timestamp=datetime.now(), phase="intake")
+
+    # Commit to DB
+    success = db_create_session(db, s, msg)
+    if not success:
+        return layout(request, Div("Sorry, we could not start your session.", cls="alert alert-error"), "Error - MedAIChat")
 
     return Redirect(f"/beneficiary/{sid}")
 
 ### Chat Route
 @rt("/chat/{sid}/poll")
 @login_required
-def poll_chat(request, sid: str):
+def poll_chat(request, sid: str, db: sqlite3.Connection):
     role = request.session.get("role")
-    s = get_session_or_404(sessions, sid)
-    return Div(*[chat_bubble(m, role) for m in s.messages],id="chat-messages")
+
+
+    messages = db_get_messages(db, sid)
+    return Div(*[chat_bubble(m, role) for m in messages],id="chat-messages")
 
 @rt("/nurse/poll")
 @login_required
-def nurse_poll(request):
+def nurse_poll(request, db: sqlite3.Connection):
     guard = require_role(request, "nurse")
     if guard: return guard
 
-    priority = {
-        ChatState.URGENT : 0,
-        ChatState.WAITING_FOR_NURSE : 1,
-    }
+    active_rows = db.execute("""
+                             SELECT * FROM sessions 
+                             WHERE state NOT IN ('completed', 'closed')
+                             ORDER BY CASE WHEN state = 'urgent' THEN 0 ELSE 1 END, id DESC
+                             """).fetchall()
+    active_sessions = [ChatSession.from_row(row) for row in active_rows]
 
-    ready_sorted = sorted((s for s in sessions.values() if s.state in priority),key = lambda s: priority.get(s.state, 99))
-
-    if not ready_sorted:
-        case = Div("No cases ready.", cls="alert alert-info")
+    if not active_sessions:
+        case = Div("No active cases.", cls="alert alert-info")
     else:
-        case = Div(*[nurse_case_card(s) for s in ready_sorted], cls="grid gap-4")
+        case = Table(
+            Thead(Tr(Th("Patient"), Th("Status"), Th("Last Symptom"), Th("Action"))),
+            Tbody(*[session_row(s) for s in active_sessions]),
+            cls="table w-full"
+        )
 
-    urgent_count = len([s for s in ready_sorted if s.state == ChatState.URGENT])
+    urgent_count = len([s for s in active_sessions if s.state == ChatState.URGENT])
     counter = urgent_counter(urgent_count)
 
     return case, counter
@@ -162,11 +176,13 @@ def nurse_poll(request):
 
 @rt("/beneficiary/{sid}")
 @login_required
-def beneficiary_view(request, sid: str):
+def beneficiary_view(request, sid: str, db: sqlite3.Connection):
     guard = require_role(request, "beneficiary")
     if guard: return guard
+
     role = request.session.get("role")
-    s = get_session_or_404(sessions, sid)
+    s = get_session_helper(db, sid)
+    if not s: return layout(request, Card(H3("Session not found")), "Error")
 
 
 
@@ -179,11 +195,14 @@ def beneficiary_view(request, sid: str):
 
 @rt("/beneficiary/{sid}/send")
 @login_required
-async def beneficiary_send(request, sid: str):
+async def beneficiary_send(request, sid: str, db:sqlite3.Connection):
     guard = require_role(request, "beneficiary")
     if guard: return guard
+
     role = request.session.get("role")
-    s = get_session_or_404(sessions, sid)
+
+    s = get_session_helper(db, sid)
+    if not s: return layout(request, Card(H3("Session not found")), "Error")
 
     form = await request.form()
     message = form.get("message", "").strip()
@@ -219,11 +238,21 @@ async def beneficiary_send(request, sid: str):
 
 @rt("/beneficiary/{sid}/emergency")
 @login_required
-def beneficiary_emergency(request, sid: str):
+def beneficiary_emergency(request, sid: str, db: sqlite3.Connection):
     guard = require_role(request, "beneficiary")
     if guard: return guard
-    s = get_session_or_404(sessions, sid)
+
+    s = get_session_helper(db, sid)
+    if not s: return layout(request, Card(H3("Session not found")), "Error")
+    
     manual_emergency_escalation(s)
+
+    sos_msg = Message(role="assistant", content="Emergency escalation has been activated.", timestamp=datetime.now(), phase="system")
+    db_save_message(db, sid, sos_msg)
+
+    # Refresh messages for the UI
+    s.messages = db_get_messages(db, sid)
+    
     role = request.session.get("role")
     chat = Div(*[chat_bubble(m, role) for m in s.messages], id="chat-messages")
     ui_bundle = get_beneficiary_ui_updates(sid, s)
@@ -257,12 +286,13 @@ def nurse_view(request, sid: str):
 
 @rt("/nurse/{sid}/send")
 @login_required
-async def nurse_send(request, sid : str):
+async def nurse_send(request, sid : str, db : sqlite3.Connection):
     guard = require_role(request, "nurse")
     if guard: return guard
     role = request.session.get("role")
 
-    s = get_session_or_404(sessions, sid)
+    s = db_get_session(db, sid)
+    if not s: raise HTTPException(status_code=404, detail=f"Session {sid} not found.")
 
     form = await request.form()
     message = form.get("message", "").strip()
@@ -277,6 +307,7 @@ async def nurse_send(request, sid : str):
 
 # New
 @rt("/nurse/session/{sid}")
+@login_required
 def get_session_detail(request, sid: str, db : sqlite3.Connection):
     guard = require_role(request, "nurse")
     if guard: return guard
@@ -286,5 +317,16 @@ def get_session_detail(request, sid: str, db : sqlite3.Connection):
 
     return render_nurse_review(session_data, messages)
     
+
+rt("/nurse/session/{sid}/finalize")
+@login_required
+def post_finalize(sid: str, nurse_summary: str, db: sqlite3.Connection):
+    # 1. Validation Check
+    if not nurse_summary.strip():
+        return Redirect(f"/nurse/session/{sid}?error=Summary+required")
+    
+    # 2. Update DB
+    db_update_session(db, sid, state=ChatState.COMPLETED, summary=nurse_summary, is_read=True)
+    return RedirectResponse("/nurse/archive")
 
 serve()

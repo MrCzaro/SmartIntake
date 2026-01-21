@@ -100,6 +100,7 @@ def nurse_joins(s: ChatSession):
     s.state = ChatState.NURSE_ACTIVE
     system_message(s, "A nurse has joined your case.")
 
+# temp - possible removal due to moving to database
 def get_session_or_404(sessions: Dict[str, ChatSession], sid: str) -> ChatSession:
     """
     Retrieve a chat session by ID or raise a 404 error.
@@ -211,6 +212,15 @@ def db_get_session(db: sqlite3.Connection, sid: str) -> ChatSession | None:
     """
     row = db.execute("SELECT * FROM session WHERE id = ?", (sid,)).fetchone()
     return ChatSession.from_row(row) if row else None
+
+def get_session_helper(db: sqlite3.Connection, sid: str) -> ChatSession:
+    """
+    Helper function to retrieve a session and its all messages in one go..
+    """
+    s = db_get_session(db, sid)
+    if s:
+        s.messages = db_get_messages(db, sid)
+    return s
 
 def db_get_messages(db: sqlite3.Connection, sid: str) -> list[Message]:
     """

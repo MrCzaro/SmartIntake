@@ -93,13 +93,15 @@ class ChatState(str, Enum):
         - WAITING_FOR_NURSE: Intake is done. Session is in the nurse's queue.
         - NURSE_ACTIVE: A human nurse is currently chatting with the beneficiary.
         - URGENT: High-priority state triggered by red flags or manual SOS.
-        - CLOSED: The interaction has concluded.
+        - CLOSED: The interaction has been finished/closed.
+        - COMPLETED: The session has been finalized and archived.
     """
     INTAKE = "intake"
     WAITING_FOR_NURSE = "waiting_for_nurse"
     NURSE_ACTIVE = "nurse_active"
     URGENT = "urgent"
     CLOSED = "closed"
+    COMPLETED = "completed"
 
 @dataclass
 class ChatSession:
@@ -134,6 +136,7 @@ class ChatSession:
             # We conver the string back from the DB into our Enum.
             state=ChatState(row["state"]),
             summary=row.get("summary"),
-            intake=bool(row.get("is_read", 0)),
+            intake=intake_data,
+            is_read=bool(row.get("is_read", 0)),
             messages=[]
         )
