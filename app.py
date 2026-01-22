@@ -4,6 +4,8 @@ from starlette.staticfiles import StaticFiles
 from uuid import uuid4
 from datetime import datetime
 from starlette.middleware.sessions import SessionMiddleware
+from dataclasses import asdict
+
 from components import * 
 from logic import *
 from models import * 
@@ -209,31 +211,37 @@ async def beneficiary_send(request, sid: str, db:sqlite3.Connection):
 
     red_flags = ["chest pain", "shortness of breath", "can't breathe", "severe bleeding", "unconscious", "stroke", "heart attack"]
     
-    if not message:
-        return Div(
-            *[chat_bubble(m, role) for m in s.messages],
-            id="chat-messages"
-        )
+    if not message: return poll_chat(request, sid, db)
+    new_msg = Message(role="beneficiary", content=message, timestamp=datetime.now(), phase = "intake" if s.state == ChatState.INTAKE else "chat")
+    db_save_message(db, sid, new_msg)
 
-    is_message_urgent = any(flag in message.lower() for flag in red_flags)
-    s.messages.append(Message(role="beneficiary", content=message, timestamp=datetime.now(), phase = "intake" if s.state == ChatState.INTAKE else "chat"))
+
     
     if s.state == ChatState.INTAKE:
-        if is_message_urgent:
-            urgent_bypass(s)
+        is_urgent = any(flag in message.lower() for flag in red_flags)
+        if is_urgent:
+            urgent_bypass(db, s)
         else:
-            q = INTAKE_SCHEMA[s.intake.current_index]
-            s.intake.answers.append(
-                IntakeAnswer(question_id=q["id"], question=q["q"], answer=message, timestamp=datetime.now()))
+            # Get the current question details from the schema
+            q_info = INTAKE_SCHEMA[s.intake.current_index]
+
+            # Save the answer 
+            s.intake.answers[q_info["id"]] = message
             s.intake.current_index += 1
-            if intake_finished(s):
+
+            # Sync the progress to DB
+            db_update_session(db, sid, intake_json=json.dumps(asdict(s.intake)))
+
+            if s.intake.current_index >= len(INTAKE_SCHEMA):
                 s.intake.completed = True
-                await complete_intake(s)
+                await complete_intake(s, db)
             else:
-                s.messages.append(Message(role="assistant", content=current_intake_question(s), timestamp=datetime.now(), phase="intake"))
-    chat = Div(*[chat_bubble(m, role) for m in s.messages], id = "chat-messages")
-    ui_bundle = get_beneficiary_ui_updates(sid, s)
-    return chat, *ui_bundle
+                # Ask the next question
+                next_q = INTAKE_SCHEMA[s.intake.current_index]["q"]
+                next_msg = Message(role="assistant", content=next_q, timestamp=datetime.now(), phase="intake")
+                db_save_message(db, sid, next_msg)
+                
+    return poll_chat(request, sid, db)
 
 
 @rt("/beneficiary/{sid}/emergency")
@@ -251,8 +259,7 @@ def beneficiary_emergency(request, sid: str, db: sqlite3.Connection):
     db_save_message(db, sid, sos_msg)
 
     # Refresh messages for the UI
-    s.messages = db_get_messages(db, sid)
-    
+    s.messages = db_get_messages(db, sid)   
     role = request.session.get("role")
     chat = Div(*[chat_bubble(m, role) for m in s.messages], id="chat-messages")
     ui_bundle = get_beneficiary_ui_updates(sid, s)
@@ -274,11 +281,14 @@ def nurse_dashboard(request):
 
 @rt("/nurse/{sid}")
 @login_required
-def nurse_view(request, sid: str):
+def nurse_view(request, sid: str, db: sqlite3.Connection):
     guard = require_role(request, "nurse")
     if guard: return guard
+
     role = request.session.get("role")
-    s = get_session_or_404(sessions, sid)
+
+    s = get_session_helper(db, sid)
+    if not s: return layout(request, Card(H3("Session not found")), "Error")
     nurse_joins(s)
     content = Titled("Nurse Review",nurse_chat_fragment(sid, s, role))
     return layout(request, content, page_title  = "Nurse Review - MedAIChat")

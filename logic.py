@@ -26,7 +26,7 @@ def current_intake_question(s: ChatSession) -> str | None:
     if intake_finished(s): return None
     return INTAKE_SCHEMA[s.intake.current_index]["q"]
 
-def system_message(s: ChatSession, text: str):
+def system_message(sid:str,  db: sqlite3.Connection, text: str):
     """
     Injects an automated system update into the chat history.
     
@@ -36,31 +36,39 @@ def system_message(s: ChatSession, text: str):
     Args:
         s (ChatSession): The session to update .
         text (str) : The content of the system notification.
+        db (sqlite3.Connection): Open database connection.
     """
-    s.messages.append(Message(role="assistant", content=text,timestamp=datetime.now(),phase="system"))
+    msg = Message(role="assistant", content=text,timestamp=datetime.now(),phase="system")
+    db_save_message(db, sid, msg)
 
-async def complete_intake(s: ChatSession):
+async def complete_intake(s: ChatSession, db: sqlite3.Connection):
     """
-    Finalizes the intake phase and moves the session to the nurse's queue.
+    Finalizes the intake phase, saves results to DB, and moves the session to the nurse's queue.
     
     This function triggers the AI summary generation, appends it to the history for nurse review,
     and updates the session state to WAITING_FOR_NURSE.
     
     Args:
-        s (ChatSession): The session to finalize."""
+        s (ChatSession): The session to finalize.
+        db (sqlite3.Connection): Open database connection."""
     if s.state != ChatState.INTAKE: return
     
     # Generate the intake summary
     await generate_intake_summary(s)
+    s.state = ChatState.WAITING_FOR_NURSE
+    db_update_session(db, s.session_id, state=s.state, summary=s.summary)
     
     # Add it as a hidden message in the chat history
     if s.summary:
-        s.messages.append(Message(role="assistant", content=s.summary, timestamp=datetime.now(), phase="summary"))
+        sum_msg = Message(role="assistant", content=s.summary, timestamp=datetime.now(), phase="summary")
+        db_save_message(db, s.session_id, sum_msg)
+    
+    sys_content = "Thank you. Your intake is complete. A nurse will review your case shortly."
+    sys_msg = Message(role="assistant", content=sys_content, timestamp=datetime.now(), phase="system")
+    db_save_message(db, s.session_id, sys_msg)
 
-    s.state = ChatState.WAITING_FOR_NURSE
-    system_message(s, "Thank you. Your intake is complete. A nurse will review your case shortly.")
        
-def urgent_bypass(s: ChatSession): 
+def urgent_bypass(s: ChatSession, db: sqlite3.Connection): 
     """
     Automatically escalates a case to URGENT status based on keyword detection.
     
@@ -69,11 +77,13 @@ def urgent_bypass(s: ChatSession):
     
     Args:
         s (ChatSession): The session to escalate.
+        db (sqlite3.Connection): Open database connection.
     """
     s.state = ChatState.URGENT
-    system_message(s,"Your message suggests a potentially urgent condition. A nurse has been notified immediately.")
+    db_update_session(db, s.session_id, state=s.state)
+    system_message(s.session_id, db, "Your message suggests a potentially urgent condition. A nurse has been notified immediately.")
 
-def manual_emergency_escalation(s: ChatSession):
+def manual_emergency_escalation(s: ChatSession, db: sqlite3.Connection):
     """
     Handles an explicit emergency request triggered by the beneficiary.
     
@@ -82,43 +92,48 @@ def manual_emergency_escalation(s: ChatSession):
     
     Args:
         S (ChatSession): The session to escalate.
+        db (sqlite3.Connection): Open database connection.
     """
     s.state = ChatState.URGENT
-    system_message(s, "🚨 Emergency button pressed. A nurse has been notified immediately.")
+    db_update_session(db, s.session_id, state=s.state)
+    system_message(s.session_id, db, "🚨 Emergency button pressed. A nurse has been notified immediately.")
 
-def nurse_joins(s: ChatSession):
+def nurse_joins(s: ChatSession, db: sqlite3.Connection):
     """
     Transitions a session from a waiting or urgent state to an active nurse chat.
     
     Args:
         s (ChatSession): The session the nurse is entering.
+        db (sqlite3.Connection): Open database connection.
         
     """
     if s.state not in (ChatState.WAITING_FOR_NURSE, ChatState.URGENT):
         return
     
     s.state = ChatState.NURSE_ACTIVE
-    system_message(s, "A nurse has joined your case.")
+    db_update_session(db, s.session_id, state=s.state)
 
-# temp - possible removal due to moving to database
-def get_session_or_404(sessions: Dict[str, ChatSession], sid: str) -> ChatSession:
-    """
-    Retrieve a chat session by ID or raise a 404 error.
+    system_message(s.session_id, db, "A nurse has joined your case.")
+
+# # temp - possible removal due to moving to database
+# def get_session_or_404(sessions: Dict[str, ChatSession], sid: str) -> ChatSession:
+#     """
+#     Retrieve a chat session by ID or raise a 404 error.
     
-    Args:
-        sessions (dict[str, ChatSession]): In-memory session store.
-        sid (str) : Session ID.
+#     Args:
+#         sessions (dict[str, ChatSession]): In-memory session store.
+#         sid (str) : Session ID.
         
-    Raises:
-        HTTPEXception: 404 if session does not exist.
+#     Raises:
+#         HTTPEXception: 404 if session does not exist.
         
-    Returns:
-        ChatSession: The requested chat session.
-    """
-    session = sessions.get(sid)
-    if session is None: 
-        raise HTTPException(404, "Session not found")
-    return session
+#     Returns:
+#         ChatSession: The requested chat session.
+#     """
+#     session = sessions.get(sid)
+#     if session is None: 
+#         raise HTTPException(404, "Session not found")
+#     return session
 
 def get_beneficiary_ui_updates(sid: str, s: ChatSession):
     """

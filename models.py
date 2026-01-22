@@ -54,21 +54,21 @@ class Message:
             phase=row["phase"]
         )
 
-@dataclass
-class IntakeAnswer:
-    """
-    Stores a specific response provided by a beneficiary during the intake process.
+# @dataclass
+# class IntakeAnswer:
+#     """
+#     Stores a specific response provided by a beneficiary during the intake process.
     
-    Attributes:
-        question_id (str): Unique identifier for the question from the schema.
-        question (str): The text of the question asked.
-        answer (str): The user's provided response.
-        timestamp (datetime): When the answer was recorded.
-    """
-    question_id : str
-    question : str
-    answer : str
-    timestamp : datetime
+#     Attributes:
+#         question_id (str): Unique identifier for the question from the schema.
+#         question (str): The text of the question asked.
+#         answer (str): The user's provided response.
+#         timestamp (datetime): When the answer was recorded.
+#     """
+#     question_id : str
+#     question : str
+#     answer : str
+#     timestamp : datetime
 
 @dataclass
 class IntakeState:
@@ -77,11 +77,11 @@ class IntakeState:
     
     Attributes:
         current_index (int): The index of the current question in the schema.
-        answers (list[IntakeAnswer]): Collection of all completed responses.
+        answers dict[str, str]: Collection of all completed responses.
         completed (bool): Whether the user has finished all intake questions.
     """
     current_index : int = 0
-    answers : list[IntakeAnswer] = field(default_factory=list)
+    answers : dict[str, str] = field(default_factory=dict)
     completed : bool = False
 
 class ChatState(str, Enum):
@@ -126,17 +126,23 @@ class ChatSession:
         # Handle the Intake JSON
         raw_json = row.get("intake_json")
         try:
-            intake_data = json.loads(raw_json if raw_json else "{}")
+            intake_data = json.loads(raw_json) if raw_json else "{}"
         except (json.JSONDecodeError, TypeError):
             intake_data = {}
+ 
+        intake_state = IntakeState(
+            current_index=intake_data.get("current_index", 0),
+            answers=intake_data.get("answers", {}),
+            completed=bool(intake_data.get("completed", False))
+        )
         
         return cls(
-            session_id=row["session_id"],
-            user_email=row.get["user_email"],
+            session_id=row["id"],
+            user_email=row["user_email"],
             # We conver the string back from the DB into our Enum.
             state=ChatState(row["state"]),
             summary=row.get("summary"),
-            intake=intake_data,
+            intake=intake_state,
             is_read=bool(row.get("is_read", 0)),
             messages=[]
         )
