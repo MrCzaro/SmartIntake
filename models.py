@@ -54,22 +54,6 @@ class Message:
             phase=row["phase"]
         )
 
-# @dataclass
-# class IntakeAnswer:
-#     """
-#     Stores a specific response provided by a beneficiary during the intake process.
-    
-#     Attributes:
-#         question_id (str): Unique identifier for the question from the schema.
-#         question (str): The text of the question asked.
-#         answer (str): The user's provided response.
-#         timestamp (datetime): When the answer was recorded.
-#     """
-#     question_id : str
-#     question : str
-#     answer : str
-#     timestamp : datetime
-
 @dataclass
 class IntakeState:
     """

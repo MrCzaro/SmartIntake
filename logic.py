@@ -115,26 +115,6 @@ def nurse_joins(s: ChatSession, db: sqlite3.Connection):
 
     system_message(s.session_id, db, "A nurse has joined your case.")
 
-# # temp - possible removal due to moving to database
-# def get_session_or_404(sessions: Dict[str, ChatSession], sid: str) -> ChatSession:
-#     """
-#     Retrieve a chat session by ID or raise a 404 error.
-    
-#     Args:
-#         sessions (dict[str, ChatSession]): In-memory session store.
-#         sid (str) : Session ID.
-        
-#     Raises:
-#         HTTPEXception: 404 if session does not exist.
-        
-#     Returns:
-#         ChatSession: The requested chat session.
-#     """
-#     session = sessions.get(sid)
-#     if session is None: 
-#         raise HTTPException(404, "Session not found")
-#     return session
-
 def get_beneficiary_ui_updates(sid: str, s: ChatSession):
     """
     Generates and prepares out-of-band (OOB) UI components for the beneficiary views.
@@ -243,3 +223,14 @@ def db_get_messages(db: sqlite3.Connection, sid: str) -> list[Message]:
     """
     rows = db.execute("SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (sid,)).fetchall()
     return [Message.from_row(row) for row in rows]
+
+def get_urgent_count(db: sqlite3.Connection) -> int:
+    """
+    Retrieves the current count of urgent chat sessions from the database.
+    
+    Args:
+        db (sqlite3.Connection): Open database connection.
+    """
+    # Only count sessions in URGENT state
+    result = db.execute("SELECT COUNT(*) FROM sessions WHERE state = ?",(ChatState.URGENT.value,)).fetchone()
+    return result[0] if result else 0

@@ -424,25 +424,26 @@ def close_session_button(sid: str, user_role: str):
         sid (str): The unique session ID.
         user_role (str): 'nurse' or 'beneficiary' to determine redirect logic.
     """
-    return Button("Close Chat", hx_post="f/{user_role}/{sid}/close",
+    return Button("Close Chat", hx_post=f"/{user_role}/{sid}/close",
                   hx_confirm="Are you sure you want to end this chat session?",
                   cls="btn btn-outline btn-error btn-sm")
 
 
 def past_sessions_table(session_list: list[ChatSession]):
     """
-    Renders a scannable table of previous medical consultations."""
+    Renders a scannable table of previous medical consultations.
+    """
     header = Thead(Tr(Th("Date"), Th("Issue"), Th("Status"), Th("Action")))
 
     rows = []
     for s in session_list:
         # We grab the first intake answer as the 'Issue' summary
-        issue = s.intake.answers[0].answer[:30] + "..." if s.intake.answers else "General Inquiry"
+        issue = s.intake.answers.get("chief_complaint", "General Inquiry")[:30] + "..."
 
         rows.append(Tr(
-            Td(s.messages[0].timestamp.strftime("%Y-%m-%d %H:%M")),
+            Td(s.messages[0].timestamp.strftime("%Y-%m-%d %H:%M") if s.messages else "N/A"),
             Td(issue),
-            Td(Span("Closed", cls="badge badge-ghost")),
+            Td(Span(s.state.value.upper(), cls="badge badge-ghost")),
             Td(A("View", href=f"/beneficiary/archieve/{s.session_id}", cls="btn btn-sm btn-primary"))
         ))
     
@@ -453,30 +454,36 @@ def session_row(s: ChatSession):
     Renders a single row in the nurse's archive table.
     Highlights unread sessions to prioritize patient safety.
     """
-    row_style = "background-color: #f0f8ff;" if not s.is_read else ""
+    row_style = "bg-blue-50 font-bold" if not s.is_read else ""
 
     return Tr(style=row_style)(
         Td(s.user_email),
-        Td(s.state.value.upper()),
-        Td(s.intake.get("chief_complaint", "N/A")),
-        Td(A("Review", href=f"/nurse/session/{s.session_id}", cls="button"))
+        Td(Span(s.state.value.upper(), cls=f"badge {'badge-error' if s.state == ChatState.URGENT else 'badge-info'}")),
+        Td(s.intake.answers.get("chief_complaint", "N/A")),
+        Td(A("Review", href=f"/nurse/{s.session_id}", cls="btn btn-primary btn-sm"))
     )
 
-def render_nurse_review(session_data: dict[str, Any], messages: list[Message]):
+def render_nurse_review(s: ChatSession, messages: list[Message]):
     """
     Creates the full HTML page for the nurse to review a case.
+
+    Args:
+        s (ChatSession): The chat session data.
+        messages (list[Message]): The list of chat messages in the session.
     """
-    return Titled(f"Review: {session_data.user_email}",
+
+    return Titled(f"Review: {s.user_email}",
                   Card(
                       H3("Patient Intake Data"),
-                      Ul(*[Li(f"{k.capitalize()}: {v}") for k, v in session_data.intake.items()])
+                      Ul(*[Li(f"{k.replace("_", "").capitalize()}: {v}") for k, v in s.intake.answers.items()])
                   ),
-                  Div(id="chat-history")(
+                  Div(id="chat-history", cls="my-4")(
                       *[chat_bubble(m, "nurse") for m in messages]
                   ),
                   # A place for the nurse to write their own summary/notes
-                  Form(action=f"/nurse/session/{session_data.session_id}/finalize")(
-                      Textarea(name="nurse_summary", placeholder="Enter clinical notes ..."),
-                      Button("Finalize Review")
+                  Form(hx_post=f"/nurse/session/{s.session_id}/finalize")(
+                      Textarea(name="nurse_summary", placeholder="Enter final clinical notes and summary...",
+                      cls="textarea textarea-bordered w-full"),
+                      Button("Finalize & Archive", cls="btn btn-primary mt-2")
                   ))
 
