@@ -18,10 +18,11 @@ init_db()
 
 # -- App setup ---
 app = FastHTML(hdrs=hdrs, static_dir="static")
+app.add_middleware(DatabaseMiddleware)
 app.add_middleware(SessionMiddleware, secret_key="secret-session-key")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 rt = app.route
-sessions : dict[str, ChatSession] = {}
+
 
 
 # --- Routes ---
@@ -117,7 +118,8 @@ def index(request):
 # Start Session
 @rt("/start")
 @login_required
-def start(request, db: sqlite3.Connection):
+def start(request):
+    db = request.state.db
     sid = str(uuid4())
     email = request.session.get("user")
 
@@ -138,7 +140,8 @@ def start(request, db: sqlite3.Connection):
 ### Chat Route
 @rt("/chat/{sid}/poll")
 @login_required
-def poll_chat(request, sid: str, db: sqlite3.Connection):
+def poll_chat(request, sid: str):
+    db = request.state.db
     role = request.session.get("role")
 
 
@@ -147,7 +150,8 @@ def poll_chat(request, sid: str, db: sqlite3.Connection):
 
 @rt("/nurse/poll")
 @login_required
-def nurse_poll(request, db: sqlite3.Connection):
+def nurse_poll(request):
+    db = request.state.db
     guard = require_role(request, "nurse")
     if guard: return guard
 
@@ -178,12 +182,12 @@ def nurse_poll(request, db: sqlite3.Connection):
     return case, urgent_counter(urgent_count)
 
 
-
 ### Beneficiary Part
 
 @rt("/beneficiary/{sid}")
 @login_required
-def beneficiary_view(request, sid: str, db: sqlite3.Connection):
+def beneficiary_view(request, sid: str):
+    db = request.state.db
     guard = require_role(request, "beneficiary")
     if guard: return guard
 
@@ -202,7 +206,8 @@ def beneficiary_view(request, sid: str, db: sqlite3.Connection):
 
 @rt("/beneficiary/{sid}/send")
 @login_required
-async def beneficiary_send(request, sid: str, db:sqlite3.Connection):
+async def beneficiary_send(request, sid: str):
+    db = request.state.db
     guard = require_role(request, "beneficiary")
     if guard: return guard
 
@@ -227,7 +232,7 @@ async def beneficiary_send(request, sid: str, db:sqlite3.Connection):
     if s.state == ChatState.INTAKE:
         is_urgent = any(flag in message.lower() for flag in red_flags)
         if is_urgent:
-            urgent_bypass(db, s)
+            urgent_bypass(s, db)
         else:
             # Get the current question details from the schema
             q_info = INTAKE_SCHEMA[s.intake.current_index]
@@ -253,7 +258,8 @@ async def beneficiary_send(request, sid: str, db:sqlite3.Connection):
 
 @rt("/beneficiary/{sid}/emergency")
 @login_required
-def beneficiary_emergency(request, sid: str, db: sqlite3.Connection):
+def beneficiary_emergency(request, sid: str):
+    db = request.state.db
     guard = require_role(request, "beneficiary")
     if guard: return guard
 
@@ -288,7 +294,8 @@ def nurse_dashboard(request):
 
 @rt("/nurse/{sid}")
 @login_required
-def nurse_view(request, sid: str, db: sqlite3.Connection):
+def nurse_view(request, sid: str):
+    db = request.state.db
     guard = require_role(request, "nurse")
     if guard: return guard
 
@@ -307,7 +314,8 @@ def nurse_view(request, sid: str, db: sqlite3.Connection):
 
 @rt("/nurse/{sid}/send")
 @login_required
-async def nurse_send(request, sid : str, db : sqlite3.Connection):
+async def nurse_send(request, sid : str):
+    db = request.state.db
     guard = require_role(request, "nurse")
     if guard: return guard
     role = request.session.get("role")
@@ -326,10 +334,10 @@ async def nurse_send(request, sid : str, db : sqlite3.Connection):
     return Div(*[chat_bubble(m, role) for m in s.messages],id="chat-messages")
 
 
-# New
 @rt("/nurse/session/{sid}")
 @login_required
-def get_session_detail(request, sid: str, db : sqlite3.Connection):
+def get_session_detail(request, sid: str):
+    db = request.state.db
     guard = require_role(request, "nurse")
     if guard: return guard
     
@@ -345,7 +353,8 @@ def get_session_detail(request, sid: str, db : sqlite3.Connection):
 
 rt("/nurse/session/{sid}/finalize")
 @login_required
-def post_finalize(request, sid: str, nurse_summary: str, db: sqlite3.Connection):
+def post_finalize(request, sid: str, nurse_summary: str):
+    db = request.state.db
     guard = require_role(request, "nurse")
     if guard: return guard
 
@@ -364,7 +373,8 @@ def post_finalize(request, sid: str, nurse_summary: str, db: sqlite3.Connection)
 
 @rt("/nurse/archive")
 @login_required
-def nurse_archive(request, db: sqlite3.Connection):
+def nurse_archive(request):
+    db = request.state.db
     guard = require_role(request, "nurse")
     if guard: return guard
 
@@ -379,4 +389,3 @@ def nurse_archive(request, db: sqlite3.Connection):
 
 serve()
 
-# we left at The Nurse's Sidebar Notification

@@ -1,8 +1,10 @@
+import sqlite3
 from fasthtml.common import *
 from monsterui.all import *
 from typing import Any
 from models import *
 from config import *
+from logic import get_unread_count
 
 
 hdrs = Theme.blue.headers()
@@ -486,4 +488,10 @@ def render_nurse_review(s: ChatSession, messages: list[Message]):
                       cls="textarea textarea-bordered w-full"),
                       Button("Finalize & Archive", cls="btn btn-primary mt-2")
                   ))
+
+def nurse_sidebar_link(db: sqlite3.Connection):
+    count = get_unread_count(db)
+    badge = Span(count, cls="badge badge-error ml-2") if count > 0 else ""
+
+    return Li(A(href="/nurse")("Active Cases", badge))
 

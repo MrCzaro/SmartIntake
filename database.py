@@ -1,4 +1,23 @@
 import sqlite3
+from starlette.middleware.base import BaseHTTPMiddleware
+
+
+class DatabaseMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware to provide a database connection for each request.
+    The connection is available as `request.state.db`.
+    """
+
+    async def dispatch(self, request, call_next):
+        request.state.db = get_db()
+        
+        try:
+            response = await call_next(request)
+        finally:
+            request.state.db.close()
+        return response
+
+
 
 def get_db() -> sqlite3.Connection:
     """
@@ -12,9 +31,10 @@ def get_db() -> sqlite3.Connection:
     """
     conn = sqlite3.connect("users.db")
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
-
+    
 def init_db() -> None:
     """
     Initialize the database schema.
@@ -23,6 +43,8 @@ def init_db() -> None:
     This function is safe to call multiple times.
     """
     db = get_db()
+    
+    # User table
     db.execute(
         """
         CREATE TABLE IF NOT EXISTS users(
@@ -32,7 +54,22 @@ def init_db() -> None:
             role TEXT NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP)
         """
+    ),
+    
+    # Session table
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            user_email TEXT NOT NULL,
+            state TEXT NOT NULL,
+            summary TEXT,
+            is_read BOOLEAN DEFAULT 0,
+            intake_json TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP)
+        """
     )
+
     # Chat persistence table
     db.execute(
         """
@@ -41,7 +78,7 @@ def init_db() -> None:
             session_id TEXT NOT NULL,
             role TEXT NOT NULL,
             content TEXT NOT NULL,
-            timestamp TEXT NOT NULL,  -- We'll store ISO format strings
+            timestamp TEXT NOT NULL, 
             phase TEXT NOT NULL,
             FOREIGN KEY (session_id) REFERENCES sessions (id)
         )
@@ -49,3 +86,5 @@ def init_db() -> None:
     
     db.commit()
     db.close()
+
+

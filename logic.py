@@ -1,7 +1,7 @@
 import sqlite3
+from dataclasses import asdict
+import json
 from datetime import datetime
-from typing import Dict
-from fasthtml.common import HTTPException
 from models import ChatSession, ChatState, Message, INTAKE_SCHEMA
 from components import *
 
@@ -140,7 +140,7 @@ def get_beneficiary_ui_updates(sid: str, s: ChatSession):
         component.attrs["hx-swap-oob"] = "true"
     return header, form, controls
 
-### NEW
+
 def db_create_session(db: sqlite3.Connection, session: ChatSession, first_message: Message):
     """
     Atomically creates a new session and its initial message.
@@ -151,15 +151,17 @@ def db_create_session(db: sqlite3.Connection, session: ChatSession, first_messag
     """
     try:
         with db: # Start transaction
-            db.execute("INSERT INTO sessions (id, user_email, state, summary) VALUES (?, ?, ?, ?)",
-                       (session.session_id, session.user_email, session.state.value, session.summary))
+            intake_json = json.dumps(asdict(session.intake))
+            db.execute("INSERT INTO sessions (id, user_email, state, intake_json, is_read) VALUES (?, ?, ?, ?, ?)",
+                       (session.session_id, session.user_email, session.state.value, intake_json, 0))
             
             # Save the First Message
-            db.execute("INSERT INTO messages (session_id, role, content, timestamp, phase) VALUES (?, ?, ?, ? ?)",
-                       session.session_id, first_message.role, first_message.content, first_message.timestamp.isoformat(), first_message.phase)
+            db.execute("INSERT INTO messages (session_id, role, content, timestamp, phase) VALUES (?, ?, ?, ?, ?)",
+                       (session.session_id, first_message.role, first_message.content, first_message.timestamp.isoformat(), first_message.phase))
+        
         return True
     except Exception as e:
-        print(f"Databae Error: {e}")
+        print(f"Database Error: {e}")
         return False
     
 def db_save_message(db: sqlite3.Connection, session_id: str, message: Message):
@@ -197,7 +199,7 @@ def db_get_nurse_archive(db: sqlite3.Connection) -> list[ChatSession]:
     Fetches all sessions that are ready for review or completed.
     Sorted by the most recent activity first.
     """
-    rows = db.execute("SELECT * FROM sessions WHERE state !-= 'intake' ORDER BY id DESC").fetchall()
+    rows = db.execute("SELECT * FROM sessions WHERE state != 'intake' ORDER BY id DESC").fetchall()
 
     return [ChatSession.from_row(row) for row in rows]
 
@@ -205,7 +207,7 @@ def db_get_session(db: sqlite3.Connection, sid: str) -> ChatSession | None:
     """
     Retrieves a single session object by its ID.
     """
-    row = db.execute("SELECT * FROM session WHERE id = ?", (sid,)).fetchone()
+    row = db.execute("SELECT * FROM sessions WHERE id = ?", (sid,)).fetchone()
     return ChatSession.from_row(row) if row else None
 
 def get_session_helper(db: sqlite3.Connection, sid: str) -> ChatSession:
@@ -234,3 +236,15 @@ def get_urgent_count(db: sqlite3.Connection) -> int:
     # Only count sessions in URGENT state
     result = db.execute("SELECT COUNT(*) FROM sessions WHERE state = ?",(ChatState.URGENT.value,)).fetchone()
     return result[0] if result else 0
+
+def get_unread_count(db: sqlite3.Connection) -> int:
+    """
+    Counts all active sessions that have unread messages for nurses.
+    
+    Args:
+        db (sqlite3.Connection): Open database connection.
+    """
+    result = db.execute("SELECT COUNT(*) FROM sessions WHERE is_read = 0 AND state NOT IN (?, ?)",
+                        (ChatState.CLOSED.value, ChatState.COMPLETED.value)).fetchone()
+    return result[0] if result else 0 
+
