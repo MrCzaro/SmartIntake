@@ -1,10 +1,9 @@
-import sqlite3
 from fasthtml.common import *
 from monsterui.all import *
 from typing import Any
 from models import *
-from config import *
-from logic import get_unread_count
+
+
 
 
 hdrs = Theme.blue.headers()
@@ -377,43 +376,6 @@ def signup_card(error_message: str | None = None, prefill_email: str = "") -> An
         CardFooter("Already have an account? ",
             A(B("Login"), href="/login")))
 
-async def generate_intake_summary(s: ChatSession):
-    """
-    Asynchronously generates a medical summary of the beneficiary's intake answers.
-    
-    This function complies all recorded intake responses and sends them to a Gemini generative model.
-    It uses a tiered fallback system, attempting newer models first and falling back to older versions
-    if an error occurs. The resulting summary is stored directly in the ChatSession object.
-    
-    Args:
-        s (ChatSession): The session containing the intake answers to be summarized.
-        
-    Note: 
-        Strict system instructions are provided to ensure the AI remains purely descriptive 
-        and avoids providing any medical advice or diagnoses.
-    """
-    # Prepare the data string from intake answers
-    data = "\n".join([f"Question: {i.question}\nAnswer: {i.answer}" for i in s.intake.answers])
-    instructions = """You are a medical intake assistant. 
-    Your only task is to summarize the patient's answers into a short, professional note for a nurse. 
-    Describe the symptoms and current situation clearly. 
-    Stricly forbidden: Do not provide medical advice, suggestion, diagnoses, or care plans."""
-    models  = ["models/gemini-2.5-flash", "models/gemini-2.0-flash", "models/gemini-1.5-flash"]
-    # Call the Gemini API
-    for model in models:
-        try:
-
-            response = await client.aio.models.generate_content(
-                model = model,
-                contents=f"Please summarize these patient answers:\n\n{data}",
-                config={"system_instruction" : instructions})
-            s.summary = response.text
-            return
-        except Exception as e:
-            print(f"Model {model} failed: {e}")
-            continue # try next model from the models list
-    if not s.summary:
-        s.summary = "System Note: Automated summary could not be generated. Please review patient responses manually."
 
 
 ##########
@@ -489,9 +451,7 @@ def render_nurse_review(s: ChatSession, messages: list[Message]):
                       Button("Finalize & Archive", cls="btn btn-primary mt-2")
                   ))
 
-def nurse_sidebar_link(db: sqlite3.Connection):
-    count = get_unread_count(db)
+def nurse_sidebar_link(count: int):
     badge = Span(count, cls="badge badge-error ml-2") if count > 0 else ""
-
     return Li(A(href="/nurse")("Active Cases", badge))
 

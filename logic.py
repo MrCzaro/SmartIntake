@@ -1,9 +1,9 @@
-import sqlite3
 from dataclasses import asdict
-import json
+import json, sqlite3
 from datetime import datetime
 from models import ChatSession, ChatState, Message, INTAKE_SCHEMA
-from components import *
+from config import *
+
 
 
 
@@ -115,30 +115,45 @@ def nurse_joins(s: ChatSession, db: sqlite3.Connection):
 
     system_message(s.session_id, db, "A nurse has joined your case.")
 
-def get_beneficiary_ui_updates(sid: str, s: ChatSession):
+async def generate_intake_summary(s: ChatSession):
     """
-    Generates and prepares out-of-band (OOB) UI components for the beneficiary views.
+    Asynchronously generates a medical summary of the beneficiary's intake answers.
     
-    This helper centralizes the logic for updating the persistent UI elements
-    (Header, Message Form, and Status Controls) that need to stay in sync with the
-    ChatSession state (e.g., transitioning from INTAKE or URGENT).
+    This function complies all recorded intake responses and sends them to a Gemini generative model.
+    It uses a tiered fallback system, attempting newer models first and falling back to older versions
+    if an error occurs. The resulting summary is stored directly in the ChatSession object.
     
     Args:
-        sid (str) : The unique session ID for the chat.
-        s(ChatSession): The current chat session object containing state and history.
+        s (ChatSession): The session containing the intake answers to be summarized.
         
-    Returns:
-        tuple: A tuple containing (header, form, controls), each with 
-        the 'hx-swap-obb' attribute set to 'true'.
+    Note: 
+        Strict system instructions are provided to ensure the AI remains purely descriptive 
+        and avoids providing any medical advice or diagnoses.
     """
-    # Generate the components
-    header = emergency_header(s)
-    form = beneficiary_form(sid, s)
-    controls = beneficiary_controls(s)
-    # Mark them all for OOB swapping
-    for component in (header, form, controls):
-        component.attrs["hx-swap-oob"] = "true"
-    return header, form, controls
+    # Prepare the data string from intake answers
+    data = "\n".join([f"Question: {i.question}\nAnswer: {i.answer}" for i in s.intake.answers])
+    instructions = """You are a medical intake assistant. 
+    Your only task is to summarize the patient's answers into a short, professional note for a nurse. 
+    Describe the symptoms and current situation clearly. 
+    Stricly forbidden: Do not provide medical advice, suggestion, diagnoses, or care plans."""
+    models  = ["models/gemini-2.5-flash", "models/gemini-2.0-flash", "models/gemini-1.5-flash"]
+    # Call the Gemini API
+    for model in models:
+        try:
+
+            response = await client.aio.models.generate_content(
+                model = model,
+                contents=f"Please summarize these patient answers:\n\n{data}",
+                config={"system_instruction" : instructions})
+            s.summary = response.text
+            return
+        except Exception as e:
+            print(f"Model {model} failed: {e}")
+            continue # try next model from the models list
+    if not s.summary:
+        s.summary = "System Note: Automated summary could not be generated. Please review patient responses manually."
+
+
 
 
 def db_create_session(db: sqlite3.Connection, session: ChatSession, first_message: Message):
@@ -193,6 +208,7 @@ def db_update_session(db: sqlite3.Connection, session_id: str, **kwargs):
     values.append(session_id)
     
     db.execute(query, values)
+    db.commit()
 
 def db_get_nurse_archive(db: sqlite3.Connection) -> list[ChatSession]:
     """

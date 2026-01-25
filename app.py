@@ -5,7 +5,7 @@ from uuid import uuid4
 from datetime import datetime
 from starlette.middleware.sessions import SessionMiddleware
 from dataclasses import asdict
-
+import json
 from components import * 
 from logic import *
 from models import * 
@@ -140,7 +140,7 @@ def start(request):
 ### Chat Route
 @rt("/chat/{sid}/poll")
 @login_required
-def poll_chat(request, sid: str):
+async def poll_chat(request, sid: str):
     db = request.state.db
     role = request.session.get("role")
 
@@ -160,7 +160,7 @@ def nurse_poll(request):
                       SELECT * FROM sessions
                       WHERE state NOT IN (?, ?)
                       ORDER BY CASE WHEN state =? THEN 0 ELSE 1 END, id DESC
-                      """, (ChatState.CLOSED.vale, ChatState.COMPLETED.value, ChatState.URGENT.value)).fetchall()
+                      """, (ChatState.CLOSED.value, ChatState.COMPLETED.value, ChatState.URGENT.value)).fetchall()
 
     
     active_sessions = [ChatSession.from_row(row) for row in rows]
@@ -219,9 +219,8 @@ async def beneficiary_send(request, sid: str):
     form = await request.form()
     message = form.get("message", "").strip()
 
-    red_flags = ["chest pain", "shortness of breath", "can't breathe", "severe bleeding", "unconscious", "stroke", "heart attack"]
+    if not message: return await poll_chat(request, sid)
     
-    if not message: return poll_chat(request, sid, db)
     new_msg = Message(role=role, content=message, timestamp=datetime.now(), phase = "intake" if s.state == ChatState.INTAKE else "chat")
     db_save_message(db, sid, new_msg)
     # Reset is_read 
@@ -230,31 +229,29 @@ async def beneficiary_send(request, sid: str):
 
     
     if s.state == ChatState.INTAKE:
+        red_flags = ["chest pain", "shortness of breath", "can't breathe", "severe bleeding", "unconscious", "stroke", "heart attack"]
         is_urgent = any(flag in message.lower() for flag in red_flags)
+        
         if is_urgent:
             urgent_bypass(s, db)
         else:
-            # Get the current question details from the schema
             q_info = INTAKE_SCHEMA[s.intake.current_index]
-
-            # Save the answer 
             s.intake.answers[q_info["id"]] = message
             s.intake.current_index += 1
 
-            # Sync the progress to DB
             db_update_session(db, sid, intake_json=json.dumps(asdict(s.intake)))
 
             if s.intake.current_index >= len(INTAKE_SCHEMA):
                 s.intake.completed = True
                 await complete_intake(s, db)
             else:
-                # Ask the next question
+                # Save Assistant's next question
                 next_q = INTAKE_SCHEMA[s.intake.current_index]["q"]
                 next_msg = Message(role="assistant", content=next_q, timestamp=datetime.now(), phase="intake")
                 db_save_message(db, sid, next_msg)
-
-    return poll_chat(request, sid, db)
-
+    db.commit()
+    messages = db_get_messages(db, sid)
+    return (Div(*[chat_bubble(m, role) for m in messages], id="chat-messages"), emergency_header(s))
 
 @rt("/beneficiary/{sid}/emergency")
 @login_required
@@ -275,9 +272,16 @@ def beneficiary_emergency(request, sid: str):
     s.messages = db_get_messages(db, sid)   
     role = request.session.get("role")
     chat = Div(*[chat_bubble(m, role) for m in s.messages], id="chat-messages")
-    ui_bundle = get_beneficiary_ui_updates(sid, s)
+    
+    header = emergency_header(s)
+    header.attrs["hx-swap-oob"] = "true"
+    form = beneficiary_form(sid, s)
+    form.attrs["hx-swap-oob"] = "true"
+    controls = beneficiary_controls(s)
+    controls.attrs["hx-swap-oob"] = "true"
 
-    return chat, *ui_bundle
+
+    return chat, header, form, controls
 
 
 ###  Nurse Part 
