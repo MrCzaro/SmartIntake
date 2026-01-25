@@ -266,7 +266,7 @@ def beneficiary_emergency(request, sid: str):
     s = get_session_helper(db, sid)
     if not s: return layout(request, Card(H3("Session not found")), "Error")
     
-    manual_emergency_escalation(s)
+    manual_emergency_escalation(s, db)
 
     sos_msg = Message(role="assistant", content="Emergency escalation has been activated.", timestamp=datetime.now(), phase="system")
     db_save_message(db, sid, sos_msg)

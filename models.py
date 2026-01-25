@@ -108,7 +108,7 @@ class ChatSession:
     def from_row(cls, row):
         """Creates a ChatSession 'shell' from a database row dictionary."""
         # Handle the Intake JSON
-        raw_json = row.get("intake_json")
+        raw_json = row["intake_json"]
         try:
             intake_data = json.loads(raw_json) if raw_json else "{}"
         except (json.JSONDecodeError, TypeError):
@@ -125,8 +125,8 @@ class ChatSession:
             user_email=row["user_email"],
             # We conver the string back from the DB into our Enum.
             state=ChatState(row["state"]),
-            summary=row.get("summary"),
+            summary=row["summary"],
             intake=intake_state,
-            is_read=bool(row.get("is_read", 0)),
+            is_read=bool(row["is_read"]),
             messages=[]
         )
