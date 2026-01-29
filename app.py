@@ -181,6 +181,29 @@ def nurse_poll(request):
 
     return case, urgent_counter(urgent_count)
 
+@rt("/{role}/{sid}/close")
+@login_required
+async def post_close_chat(request, role: str, sid: str):
+    db = request.state.db
+    s = get_session_helper(db, sid)
+    if not s: return layout(request, Card(H3("Session not found")), "Error")
+
+    # Update Logic
+    close_session(s, db)
+
+    # Redirect or Update UI
+    if role == "nurse":
+        return Response(headers={"HX-Redirect": "/nurse"})
+    
+    return Div(
+        Card(
+            H3("Session Ended"),
+            P("Thank you for using MedAIChat. Your transcript has been saved."),
+            A("Return to Dashboard", href="/", cls="btn btn-primary"),
+            cls="p-8 text-center"
+        ),
+        id="chat-container"
+    )
 
 ### Beneficiary Part
 
@@ -251,7 +274,7 @@ async def beneficiary_send(request, sid: str):
                 db_save_message(db, sid, next_msg)
     db.commit()
     messages = db_get_messages(db, sid)
-    return (Div(*[chat_bubble(m, role) for m in messages], id="chat-messages"), emergency_header(s))
+    return Div(*[chat_bubble(m, role) for m in messages], id="chat-messages")
 
 @rt("/beneficiary/{sid}/emergency")
 @login_required

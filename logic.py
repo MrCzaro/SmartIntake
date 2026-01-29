@@ -56,7 +56,9 @@ async def complete_intake(s: ChatSession, db: sqlite3.Connection):
     # Generate the intake summary
     await generate_intake_summary(s)
     s.state = ChatState.WAITING_FOR_NURSE
-    db_update_session(db, s.session_id, state=s.state, summary=s.summary)
+    s.intake.completed = True
+    intake_json = json.dumps(asdict(s.intake))
+    db_update_session(db, s.session_id, state=s.state, summary=s.summary, intake_json=intake_json, is_read=False)
     
     # Add it as a hidden message in the chat history
     if s.summary:
@@ -66,6 +68,7 @@ async def complete_intake(s: ChatSession, db: sqlite3.Connection):
     sys_content = "Thank you. Your intake is complete. A nurse will review your case shortly."
     sys_msg = Message(role="assistant", content=sys_content, timestamp=datetime.now(), phase="system")
     db_save_message(db, s.session_id, sys_msg)
+    db.commit()
 
        
 def urgent_bypass(s: ChatSession, db: sqlite3.Connection): 
@@ -131,11 +134,19 @@ async def generate_intake_summary(s: ChatSession):
         and avoids providing any medical advice or diagnoses.
     """
     # Prepare the data string from intake answers
-    data = "\n".join([f"Question: {i.question}\nAnswer: {i.answer}" for i in s.intake.answers])
+    question_map = {item["id"]: item["q"] for item in INTAKE_SCHEMA}
+
+    summary_lines = []
+    for q_id, answer in s.intake.answers.items():
+        question_text = question_map.get(q_id, q_id)
+        summary_lines.append(f"Question: {question_text}\nAnswer: {answer}")
+
+    data = "\n".join(summary_lines)
     instructions = """You are a medical intake assistant. 
     Your only task is to summarize the patient's answers into a short, professional note for a nurse. 
     Describe the symptoms and current situation clearly. 
     Stricly forbidden: Do not provide medical advice, suggestion, diagnoses, or care plans."""
+    
     models  = ["models/gemini-2.5-flash", "models/gemini-2.0-flash", "models/gemini-1.5-flash"]
     # Call the Gemini API
     for model in models:
@@ -145,8 +156,10 @@ async def generate_intake_summary(s: ChatSession):
                 model = model,
                 contents=f"Please summarize these patient answers:\n\n{data}",
                 config={"system_instruction" : instructions})
-            s.summary = response.text
-            return
+            
+            if response and response.text:
+                s.summary = response.text
+                return 
         except Exception as e:
             print(f"Model {model} failed: {e}")
             continue # try next model from the models list
@@ -226,6 +239,15 @@ def db_get_session(db: sqlite3.Connection, sid: str) -> ChatSession | None:
     row = db.execute("SELECT * FROM sessions WHERE id = ?", (sid,)).fetchone()
     return ChatSession.from_row(row) if row else None
 
+def close_session(s: ChatSession, db: sqlite3.Connection):
+    """
+    Marks a session as closed and saves the timestamp.
+    """
+    s.state = ChatState.CLOSED
+    close_msg = Message(role="assistant", content="This session has been closed.", timestamp=datetime.now(), phase="system")
+    db_save_message(db, s.session_id, close_msg)
+    db.commit()
+    
 def get_session_helper(db: sqlite3.Connection, sid: str) -> ChatSession:
     """
     Helper function to retrieve a session and its all messages in one go..

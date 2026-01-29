@@ -78,8 +78,8 @@ def urgent_counter(count: int):
     badge_cls = "badge-error" if count > 0 else "badge-ghost"
     return Div( f"Urgent Cases: {count}", id="urgent-count", cls=f"badge {badge_cls} p-4 font-bold", hx_swap_oob="true" if count is not None else "false")
 
-# temp
-def nurse_case_card(s: ChatSession):
+
+def nurse_case_card(s: ChatSession): # not used
     """
     Renders a preview card for a specific chat session in the nurse dashboard.
     
@@ -166,6 +166,18 @@ def chat_window(messages: list[Message], sid: str, user_role: str):
         hx_trigger="every 2s",
         hx_swap="innerHTML",
         hx_target="#chat-messages"
+    )
+
+def close_chat_button(sid: str, role: str):
+    """
+    A consistent 'End Chat' button for both roles.
+    """
+    return Button(
+        "End Chat",
+        hx_post=f"/{role}/{sid}/close",
+        hx_confirm="Are you sure you want to end this session?",
+        hx_target="body",
+        cls="btn btn-outline  btn-error btn-sm"
     )
 
 def beneficiary_chat_fragment(sid: str, s:ChatSession, user_role: str):
@@ -303,7 +315,7 @@ def beneficiary_controls(s: ChatSession) -> Any:
     if s.state in (ChatState.NURSE_ACTIVE, ChatState.URGENT):
         content = Div("You may continue chatting with the nurse.", cls = "alert alert-success mt-4")
     
-    return Div(content, id="beneficiary-controls")
+    return Div(content, close_chat_button(s.session_id, "beneficiary"), id="beneficiary-controls")
     
 
 
@@ -378,19 +390,7 @@ def signup_card(error_message: str | None = None, prefill_email: str = "") -> An
 
 
 
-##########
-# Conceptual functions - not used yet
-def close_session_button(sid: str, user_role: str):
-    """
-    Renders a button to trigger the session closure.
-    
-    Args:
-        sid (str): The unique session ID.
-        user_role (str): 'nurse' or 'beneficiary' to determine redirect logic.
-    """
-    return Button("Close Chat", hx_post=f"/{user_role}/{sid}/close",
-                  hx_confirm="Are you sure you want to end this chat session?",
-                  cls="btn btn-outline btn-error btn-sm")
+
 
 
 def past_sessions_table(session_list: list[ChatSession]):
@@ -451,7 +451,7 @@ def render_nurse_review(s: ChatSession, messages: list[Message]):
                       Button("Finalize & Archive", cls="btn btn-primary mt-2")
                   ))
 
-def nurse_sidebar_link(count: int):
+def nurse_sidebar_link(count: int): # Not used
     badge = Span(count, cls="badge badge-error ml-2") if count > 0 else ""
     return Li(A(href="/nurse")("Active Cases", badge))
 
