@@ -105,6 +105,7 @@ def nurse_case_card(s: ChatSession): # not used
         Div(f"Last message: {last_msg[:80]}...", cls="text-sm mt-1"),
         A("Open case", href=f"/nurse/{s.session_id}", cls="btn btn-primary btn-sm mt-2 w-full"),cls=f"card {urgent_styles} shadow p-4 transition-all duration-300")
 
+
 def chat_bubble(msg: Message, user_role: str):
     """
     Renders an individual message bubble within the chat interface.
@@ -393,7 +394,7 @@ def signup_card(error_message: str | None = None, prefill_email: str = "") -> An
 
 
 
-def past_sessions_table(session_list: list[ChatSession]):
+def past_sessions_table(session_list: list[ChatSession]): # used in nurse archive so far not used
     """
     Renders a scannable table of previous medical consultations.
     """
@@ -423,11 +424,17 @@ def session_row(s: ChatSession):
     return Tr(style=row_style)(
         Td(s.user_email),
         Td(Span(s.state.value.upper(), cls=f"badge {'badge-error' if s.state == ChatState.URGENT else 'badge-info'}")),
-        Td(s.intake.answers.get("chief_complaint", "N/A")),
-        Td(A("Review", href=f"/nurse/{s.session_id}", cls="btn btn-primary btn-sm"))
-    )
+        Td(s.intake.answers.get("chief_complaint", "N/A").capitalize()),
+        Td(
+            Div(
+                A("Review", href=f"/nurse/{s.session_id}", cls="btn btn-primary btn-sm"),
+                close_session_button(s.session_id),
+                cls="flex gap-2"
+                )
+            )
+        )
 
-def render_nurse_review(s: ChatSession, messages: list[Message]):
+def render_nurse_review(s: ChatSession, messages: list[Message]): # used in session details, not used so far 
     """
     Creates the full HTML page for the nurse to review a case.
 
@@ -455,3 +462,50 @@ def nurse_sidebar_link(count: int): # Not used
     badge = Span(count, cls="badge badge-error ml-2") if count > 0 else ""
     return Li(A(href="/nurse")("Active Cases", badge))
 
+def close_session_button(sid: str): 
+    """
+    The indvidual close button.
+    """
+    return Button("Arichive Case",
+                  hx_post=f"/nurse/session/{sid}/close",
+                  hx_confirm="Are you sure you want to close this case?",
+                  hx_target="closest tr",
+                  hx_swap="delete", 
+                  cls="btn btn-xs btn-outline btn-error")
+
+
+def nurse_case_row(s:ChatSession):
+    """
+    Renders a single row in the nurse dashboard table.
+    """
+    # Formating the timestamp
+    time_str = s.timestamp.strftime("%H:%M") if isinstance(s.timestamp, datetime) else str(s.timestamp)
+
+    # Dynamic badges for status
+    status_cls = "badge-warning" if s.state == ChatState.URGENT else "badge-info"
+
+    case_row = Tr(
+        Td(time_str, cls="font-mono text-xs"),
+        Td(s.session_id[:8] + "...", cls="font-mono text-xs opacity-50"),
+        Td(Span(s.state.name, cls=f"badge {status_cls} badge-sm")),
+        Td(
+            A("Open Chat", href="/nurse/chat/{s.session_id}", cls="btn btn-xs btn-ghost"),
+            close_session_button(s.session_id)
+        ),
+        id=f"session-row-{s.session_id}"
+    )
+    return case_row
+
+def nurse_dashboard_table(sessions):
+    """
+    The container table.
+    """
+    if not sessions:
+        return Div("No activbe cases found.", cls="p-10 text-center opacity-50 italic")
+    
+    tab = Table(
+        Thead(Tr(Th("Time"), Th("ID"), Th("Status"), Th("Actions"))),
+        Tbody(*[nurse_case_row(s) for s in sessions]),
+        cls="table table-zebra w-full"
+    )
+    return tab

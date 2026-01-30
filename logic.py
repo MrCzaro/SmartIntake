@@ -1,6 +1,6 @@
 from dataclasses import asdict
 import json, sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from models import ChatSession, ChatState, Message, INTAKE_SCHEMA
 from config import *
 
@@ -239,6 +239,38 @@ def db_get_session(db: sqlite3.Connection, sid: str) -> ChatSession | None:
     row = db.execute("SELECT * FROM sessions WHERE id = ?", (sid,)).fetchone()
     return ChatSession.from_row(row) if row else None
 
+def db_cleanup_stale_sessions(db: sqlite3.Connection):
+    """
+    Automatically closes sessions that have been inactive for > 20 minutes.
+    """
+    # Calculate the cutoff time (20 minutes ago)
+    timeout_limit = (datetime.now() - timedelta(minutes=20)).isoformat()
+
+    # Update sessions that are in INTAKE and have not been updated recently.
+    db.execute("UPDATE sessions SET state = ? WHERE state = ? AND created_at < ?", (ChatState.CLOSED.value, ChatState.INTAKE.value, timeout_limit))
+    db.commit()
+
+def get_nurse_dashboard_data(db: sqlite3.Connection):
+    """
+    Returns sessions ready for nurse review and counts urgent cases..
+    Excludes INTAKE (active) and CLOSED sessions.
+    """
+    # Run the cleanup first 
+    db_cleanup_stale_sessions(db)
+
+    # Get Urgent count 
+    urgent_count = get_urgent_count(db)
+
+    # Fetch actionable sessions
+    excluded_states = [ChatState.CLOSED.value, ChatState.COMPLETED.value, ChatState.INTAKE.value]
+    placeholders = ",".join(["?"] * len(excluded_states))
+    query = f"SELECT * FROM sessions WHERE state NOT IN ({placeholders}) ORDER BY CASE WHEN state = ? THEN 0 ELSE 1 END, created_at DESC"
+    params = excluded_states + [ChatState.URGENT.value]
+    rows = db.execute(query, params).fetchall()
+    sessions = [ChatSession.from_row(row) for row in rows]
+
+    return sessions, urgent_count 
+
 def close_session(s: ChatSession, db: sqlite3.Connection):
     """
     Marks a session as closed and saves the timestamp.
@@ -247,7 +279,7 @@ def close_session(s: ChatSession, db: sqlite3.Connection):
     close_msg = Message(role="assistant", content="This session has been closed.", timestamp=datetime.now(), phase="system")
     db_save_message(db, s.session_id, close_msg)
     db.commit()
-    
+
 def get_session_helper(db: sqlite3.Connection, sid: str) -> ChatSession:
     """
     Helper function to retrieve a session and its all messages in one go..
@@ -264,6 +296,7 @@ def db_get_messages(db: sqlite3.Connection, sid: str) -> list[Message]:
     rows = db.execute("SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (sid,)).fetchall()
     return [Message.from_row(row) for row in rows]
 
+
 def get_urgent_count(db: sqlite3.Connection) -> int:
     """
     Retrieves the current count of urgent chat sessions from the database.
@@ -275,14 +308,4 @@ def get_urgent_count(db: sqlite3.Connection) -> int:
     result = db.execute("SELECT COUNT(*) FROM sessions WHERE state = ?",(ChatState.URGENT.value,)).fetchone()
     return result[0] if result else 0
 
-def get_unread_count(db: sqlite3.Connection) -> int:
-    """
-    Counts all active sessions that have unread messages for nurses.
-    
-    Args:
-        db (sqlite3.Connection): Open database connection.
-    """
-    result = db.execute("SELECT COUNT(*) FROM sessions WHERE is_read = 0 AND state NOT IN (?, ?)",
-                        (ChatState.CLOSED.value, ChatState.COMPLETED.value)).fetchone()
-    return result[0] if result else 0 
 

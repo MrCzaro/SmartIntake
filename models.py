@@ -99,6 +99,7 @@ class ChatSession:
     session_id : str
     user_email : str
     state : ChatState = ChatState.INTAKE 
+    created_at: datetime = field(default_factory=datetime.now)
     messages: list[Message] = field(default_factory=list)
     intake : IntakeState = field(default_factory=IntakeState)
     summary: str | None = None
@@ -113,18 +114,24 @@ class ChatSession:
             intake_data = json.loads(raw_json) if raw_json else "{}"
         except (json.JSONDecodeError, TypeError):
             intake_data = {}
- 
+     
         intake_state = IntakeState(
             current_index=intake_data.get("current_index", 0),
             answers=intake_data.get("answers", {}),
             completed=bool(intake_data.get("completed", False))
         )
         
+        raw_date = row["created_at"]
+        try:
+            ca = datetime.fromisoformat(raw_date.replace(" ", "T")) if raw_date else datetime.now()
+        except:
+            ca = datetime.now()
+ 
         return cls(
             session_id=row["id"],
             user_email=row["user_email"],
-            # We conver the string back from the DB into our Enum.
             state=ChatState(row["state"]),
+            created_at=ca,
             summary=row["summary"],
             intake=intake_state,
             is_read=bool(row["is_read"]),

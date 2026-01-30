@@ -155,19 +155,8 @@ def nurse_poll(request):
     guard = require_role(request, "nurse")
     if guard: return guard
 
-    # Fetch sessions that are not finished
-    rows = db.execute("""
-                      SELECT * FROM sessions
-                      WHERE state NOT IN (?, ?)
-                      ORDER BY CASE WHEN state =? THEN 0 ELSE 1 END, id DESC
-                      """, (ChatState.CLOSED.value, ChatState.COMPLETED.value, ChatState.URGENT.value)).fetchall()
-
-    
-    active_sessions = [ChatSession.from_row(row) for row in rows]
-
-    # Get the specific count for the badge
-    urgent_count = get_urgent_count(db)
-
+    active_sessions, urgent_count = get_nurse_dashboard_data(db)
+   
     if not active_sessions:
         case = Div("No active cases.", cls="alert alert-info")
     else:
@@ -311,8 +300,10 @@ def beneficiary_emergency(request, sid: str):
 @rt("/nurse")
 @login_required
 def nurse_dashboard(request):
+    db = request.state.db
     guard = require_role(request, "nurse")
     if guard: return guard
+
     content = Titled( "Nurse Dashboard", Div("Urgent: 0", id="urgent-count", cls="badge badge-ghost"),
         Div(id="nurse-cases", hx_get="/nurse/poll", hx_trigger="load, every 3s", hx_swap="innerHTML"))
     
@@ -360,8 +351,25 @@ async def nurse_send(request, sid : str):
     nurse_joins(s)
     return Div(*[chat_bubble(m, role) for m in s.messages],id="chat-messages")
 
+@rt("/nurse/session/{sid}/close")
+@login_required
+async def post_close_session(request, sid: str):
+    db = request.state.db
+    guard = require_role(request, "nurse")
+    if guard: return guard
 
-@rt("/nurse/session/{sid}")
+    # Update state to CLOSED
+    db.execute("UPDATE sessions SET state = ? WHERE session_id = ?", (ChatState.CLOSED.value, sid))
+
+    # Add a final system message
+    db_save_message(db, sid,
+                    Message(role="assistant", content="Session closed by nurse.", timestamp=datetime.now(), phase="system"))
+    db.commit()
+
+    # Return empty string to remove the row from the dashboard
+    return ""
+
+@rt("/nurse/session/{sid}") # not used 
 @login_required
 def get_session_detail(request, sid: str):
     db = request.state.db
@@ -398,7 +406,7 @@ def post_finalize(request, sid: str, nurse_summary: str):
     db_update_session(db, sid, state=ChatState.COMPLETED, summary=nurse_summary, is_read=True)
     return Redirect("/nurse")
 
-@rt("/nurse/archive")
+@rt("/nurse/archive") # Not used
 @login_required
 def nurse_archive(request):
     db = request.state.db
