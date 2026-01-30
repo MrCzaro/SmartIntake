@@ -428,7 +428,6 @@ def session_row(s: ChatSession):
         Td(
             Div(
                 A("Review", href=f"/nurse/{s.session_id}", cls="btn btn-primary btn-sm"),
-                close_session_button(s.session_id),
                 cls="flex gap-2"
                 )
             )
@@ -466,7 +465,7 @@ def close_session_button(sid: str):
     """
     The indvidual close button.
     """
-    return Button("Arichive Case",
+    return Button("Archive Case",
                   hx_post=f"/nurse/session/{sid}/close",
                   hx_confirm="Are you sure you want to close this case?",
                   hx_target="closest tr",

@@ -359,7 +359,7 @@ async def post_close_session(request, sid: str):
     if guard: return guard
 
     # Update state to CLOSED
-    db.execute("UPDATE sessions SET state = ? WHERE session_id = ?", (ChatState.CLOSED.value, sid))
+    db.execute("UPDATE sessions SET state = ? WHERE id = ?", (ChatState.CLOSED.value, sid))
 
     # Add a final system message
     db_save_message(db, sid,
