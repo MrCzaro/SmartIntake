@@ -223,6 +223,22 @@ def db_update_session(db: sqlite3.Connection, session_id: str, **kwargs):
     db.execute(query, values)
     db.commit()
 
+def db_get_session(db: sqlite3.Connection, sid: str) -> ChatSession | None:
+    """
+    Retrieves a single session object by its ID.
+    """
+    row = db.execute("SELECT * FROM sessions WHERE id = ?", (sid,)).fetchone()
+    return ChatSession.from_row(row) if row else None
+
+def db_get_user_sessions(db, user_email: str) -> list[ChatSession]:
+    """
+    Retrieves all chat sessions for a specific user, sorted by most recent.
+    """
+    rows = db.execute("SELECT * FROM sessions WHERE user_email = ? ORDER BY created_at DESC", (user_email,)).fetchall()
+
+    # Map the rows to ChatSession object
+    return [ChatSession.from_row(row) for row in rows]
+
 def db_get_nurse_archive(db: sqlite3.Connection) -> list[ChatSession]:
     """
     Fetches all sessions that are ready for review or completed.
@@ -232,12 +248,6 @@ def db_get_nurse_archive(db: sqlite3.Connection) -> list[ChatSession]:
 
     return [ChatSession.from_row(row) for row in rows]
 
-def db_get_session(db: sqlite3.Connection, sid: str) -> ChatSession | None:
-    """
-    Retrieves a single session object by its ID.
-    """
-    row = db.execute("SELECT * FROM sessions WHERE id = ?", (sid,)).fetchone()
-    return ChatSession.from_row(row) if row else None
 
 def db_cleanup_stale_sessions(db: sqlite3.Connection):
     """
@@ -275,9 +285,11 @@ def close_session(s: ChatSession, db: sqlite3.Connection):
     """
     Marks a session as closed and saves the timestamp.
     """
-    s.state = ChatState.CLOSED
+    db.execute("UPDATE sessions SET state = ? WHERE id = ?", (ChatState.CLOSED.value, s.session_id))
+
+    
     close_msg = Message(role="assistant", content="This session has been closed.", timestamp=datetime.now(), phase="system")
-    db_save_message(db, s.session_id, close_msg)
+    db_save_message(db, s.id, close_msg)
     db.commit()
 
 def get_session_helper(db: sqlite3.Connection, sid: str) -> ChatSession:

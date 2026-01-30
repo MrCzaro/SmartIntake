@@ -105,6 +105,10 @@ class ChatSession:
     summary: str | None = None
     is_read : bool = False
 
+    @property
+    def id(self):
+        return self.session_id
+
     @classmethod
     def from_row(cls, row):
         """Creates a ChatSession 'shell' from a database row dictionary."""

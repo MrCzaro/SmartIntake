@@ -173,12 +173,23 @@ def close_chat_button(sid: str, role: str):
     """
     A consistent 'End Chat' button for both roles.
     """
-    return Button(
-        "End Chat",
-        hx_post=f"/{role}/{sid}/close",
+    close_cls =  "btn btn-warning btn-square"
+    label = "✖"
+    tit = "Close Session"
+    if role == "nurse":
+        return A(
+            label, 
+            hx_post=f"/nurse/session/{sid}/close",
+            hx_confirm="Are you sure you want to end this session?",
+            cls=close_cls,
+            title=tit)
+    return A(
+        label,
+        hx_post=f"/beneficiary/{sid}/close",
         hx_confirm="Are you sure you want to end this session?",
         hx_target="body",
-        cls="btn btn-outline  btn-error btn-sm"
+        cls=close_cls,
+        title=tit
     )
 
 def beneficiary_chat_fragment(sid: str, s:ChatSession, user_role: str):
@@ -283,7 +294,7 @@ def beneficiary_form(sid: str, s: ChatSession) -> Any:
         sos_btn = Button("🆘", hx_post=f"/beneficiary/{sid}/emergency", hx_target="#chat-messages", hx_confirm="Escalate to a nurse?",
                 hx_on__htmx_config_request="this.setAttribute('disabled', 'disabled')", type="button",  cls="btn btn-error btn-square", title="Emergency Escalation")
 
-    return Form(Div(sos_btn,
+    return Form(Div(sos_btn, close_chat_button(sid, "beneficiary"),
             Input(name="message", id="chat-input", placeholder="Type your message...", cls="input input-bordered w-full"),
             Button("Send", cls="btn btn-primary mt-2", type="submit", hx_disable_elt="this"),
             cls="flex gap-2 p-4 bg-base-200 border-t items-center"), id="beneficiary-input-form", hx_post=f"/beneficiary/{sid}/send",
@@ -316,7 +327,7 @@ def beneficiary_controls(s: ChatSession) -> Any:
     if s.state in (ChatState.NURSE_ACTIVE, ChatState.URGENT):
         content = Div("You may continue chatting with the nurse.", cls = "alert alert-success mt-4")
     
-    return Div(content, close_chat_button(s.session_id, "beneficiary"), id="beneficiary-controls")
+    return Div(content, id="beneficiary-controls")
     
 
 

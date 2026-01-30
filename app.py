@@ -106,7 +106,7 @@ def index(request):
     role = request.session.get("role")
 
     if role == "beneficiary":
-        return Redirect("/start")
+        return Redirect("/beneficiary")
     
     if role == "nurse":
         return Redirect("/nurse")
@@ -170,31 +170,41 @@ def nurse_poll(request):
 
     return case, urgent_counter(urgent_count)
 
-@rt("/{role}/{sid}/close")
-@login_required
-async def post_close_chat(request, role: str, sid: str):
-    db = request.state.db
-    s = get_session_helper(db, sid)
-    if not s: return layout(request, Card(H3("Session not found")), "Error")
-
-    # Update Logic
-    close_session(s, db)
-
-    # Redirect or Update UI
-    if role == "nurse":
-        return Response(headers={"HX-Redirect": "/nurse"})
-    
-    return Div(
-        Card(
-            H3("Session Ended"),
-            P("Thank you for using MedAIChat. Your transcript has been saved."),
-            A("Return to Dashboard", href="/", cls="btn btn-primary"),
-            cls="p-8 text-center"
-        ),
-        id="chat-container"
-    )
-
 ### Beneficiary Part
+@rt("/beneficiary")
+@login_required
+def beneficiary_dashboard(request):
+    db = request.state.db
+    guard = require_role(request, "beneficiary")
+    if guard: return guard
+
+    user_email = request.session.get("user")
+
+    sessions = db_get_user_sessions(db, user_email)
+
+    content = Titled(
+        "My Consultations",
+        Div(
+            A("Start New Consultation", href="/start", cls="btn btn-primary mb-4"),
+            Table(
+                Thead(
+                    Tr(
+                        Th("Date"),
+                        Th("Status"),
+                        Th("Action")
+                    )
+                ),
+                Tbody(
+                    *[Tr(Td(s.created_at.strftime("%Y-%m-%d %H:%M")), Td(s.state.value),
+                    Td(A("Open", href=f"/beneficiary{s.id}", cls="btn btn-sm btn-outline"))) for s in sessions]
+                ),
+                cls="table w-full"
+                )
+            )
+        )
+    return layout(request, content, page_title="My Consultation")
+
+
 
 @rt("/beneficiary/{sid}")
 @login_required
@@ -240,30 +250,40 @@ async def beneficiary_send(request, sid: str):
 
 
     
-    if s.state == ChatState.INTAKE:
-        red_flags = ["chest pain", "shortness of breath", "can't breathe", "severe bleeding", "unconscious", "stroke", "heart attack"]
-        is_urgent = any(flag in message.lower() for flag in red_flags)
+    if s.state == ChatState.INTAKE and s.intake and not s.intake.completed:
         
-        if is_urgent:
+        red_flags = ["chest pain", "shortness of breath", "can't breathe", "severe bleeding", "unconscious", "stroke", "heart attack"]
+        
+        if any(flag in message.lower() for flag in red_flags):
             urgent_bypass(s, db)
-        else:
-            q_info = INTAKE_SCHEMA[s.intake.current_index]
-            s.intake.answers[q_info["id"]] = message
-            s.intake.current_index += 1
+            db.commit()
+            return await poll_chat(request, sid)
+        
+        intake = s.intake
+        q_info = INTAKE_SCHEMA[intake.current_index]
+        
+        intake.answers[q_info["id"]] = message
+        intake.current_index += 1
 
+        db_update_session(db, sid, intake_json=json.dumps(asdict(s.intake)))
+
+        if intake.current_index >= len(INTAKE_SCHEMA):
+            intake.completed = True
             db_update_session(db, sid, intake_json=json.dumps(asdict(s.intake)))
+            await complete_intake(s, db)
+        else:
+            next_q = INTAKE_SCHEMA[intake.current_index]["q"]
+            next_msg = Message(role="assistant", content=next_q, timestamp=datetime.now(), phase="intake")
+            db_save_message(db, sid, next_msg)
 
-            if s.intake.current_index >= len(INTAKE_SCHEMA):
-                s.intake.completed = True
-                await complete_intake(s, db)
-            else:
-                # Save Assistant's next question
-                next_q = INTAKE_SCHEMA[s.intake.current_index]["q"]
-                next_msg = Message(role="assistant", content=next_q, timestamp=datetime.now(), phase="intake")
-                db_save_message(db, sid, next_msg)
     db.commit()
-    messages = db_get_messages(db, sid)
-    return Div(*[chat_bubble(m, role) for m in messages], id="chat-messages")
+    out = [chat_bubble(new_msg, role)]
+
+    if next_msg:
+        out.append(chat_bubble(next_msg, role))
+
+    return Div(*out)
+
 
 @rt("/beneficiary/{sid}/emergency")
 @login_required
@@ -295,6 +315,27 @@ def beneficiary_emergency(request, sid: str):
 
     return chat, header, form, controls
 
+@rt("/beneficiary/{sid}/close")
+@login_required
+async def beneficiary_close(request, sid: str):
+    db = request.state.db
+    s = get_session_helper(db, sid)
+    if not s: return layout(request, Card(H3("Session not found")), "Error")
+    guard = require_role(request, "beneficiary")
+    if guard: return guard
+    # Update Logic
+    close_session(s, db)
+
+    content =Div(
+        Card(
+            H3("Session Ended"),
+            P("Thank you for using MedAIChat. Your session has been saved."),
+            A("Return to Home", href="/", cls="btn btn-primary"),
+            cls="p-8 text-center"
+        ),
+        id="chat-container"
+    )
+    return layout(request, content, page_title = "End Chat - MedAIChat")
 
 ###  Nurse Part 
 @rt("/nurse")
@@ -338,28 +379,34 @@ async def nurse_send(request, sid : str):
     if guard: return guard
     role = request.session.get("role")
 
-    s = db_get_session(db, sid)
-    if not s: raise HTTPException(status_code=404, detail=f"Session {sid} not found.")
+    s = get_session_helper(db, sid)
+    if not s:
+        return layout(request, Card(H3("Session not found")), "Error")
 
     form = await request.form()
     message = form.get("message", "").strip()
 
     if not message:
-        return Div(*[chat_bubble(m, role) for m in s.messages], id="chat-messages")
+        return await poll_chat(request, sid)
     
-    s.messages.append(Message(role="nurse", content=message, timestamp=datetime.now(), phase="chat"))
-    nurse_joins(s)
-    return Div(*[chat_bubble(m, role) for m in s.messages],id="chat-messages")
+    msg = Message(role="nurse", content="message", timestamp=datetime.now(), phase="chat")
+    db_save_message(db, sid, msg)
+    db_update_session(db, sid, is_read=False)
+    db.commit()
+
+    return chat_bubble(msg, role)
 
 @rt("/nurse/session/{sid}/close")
 @login_required
-async def post_close_session(request, sid: str):
+async def nurse_close(request, sid: str):
     db = request.state.db
     guard = require_role(request, "nurse")
     if guard: return guard
 
-    # Update state to CLOSED
-    db.execute("UPDATE sessions SET state = ? WHERE id = ?", (ChatState.CLOSED.value, sid))
+    s = get_session_helper(db, sid)
+    if not s: 
+        return layout(request, Card(H3("Session not found")), "Error")
+    close_session(s, db)
 
     # Add a final system message
     db_save_message(db, sid,
