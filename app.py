@@ -241,14 +241,15 @@ async def beneficiary_send(request, sid: str):
     form = await request.form()
     message = form.get("message", "").strip()
 
-    if not message: return await poll_chat(request, sid)
+    if not message: return "" # await poll_chat(request, sid)
     
-    new_msg = Message(role=role, content=message, timestamp=datetime.now(), phase = "intake" if s.state == ChatState.INTAKE else "chat")
-    db_save_message(db, sid, new_msg)
+    user_msg  = Message(role=role, content=message, timestamp=datetime.now(), phase = "intake" if s.state == ChatState.INTAKE else "chat")
+    db_save_message(db, sid, user_msg )
     # Reset is_read 
     db_update_session(db, sid, is_read=False)
 
-
+    out = [chat_bubble(user_msg, role)]
+    next_msg = None
     
     if s.state == ChatState.INTAKE and s.intake and not s.intake.completed:
         
@@ -257,7 +258,7 @@ async def beneficiary_send(request, sid: str):
         if any(flag in message.lower() for flag in red_flags):
             urgent_bypass(s, db)
             db.commit()
-            return await poll_chat(request, sid)
+            return Div(*out)
         
         intake = s.intake
         q_info = INTAKE_SCHEMA[intake.current_index]
@@ -275,12 +276,10 @@ async def beneficiary_send(request, sid: str):
             next_q = INTAKE_SCHEMA[intake.current_index]["q"]
             next_msg = Message(role="assistant", content=next_q, timestamp=datetime.now(), phase="intake")
             db_save_message(db, sid, next_msg)
+            out.append(chat_bubble(next_msg, role))
 
     db.commit()
-    out = [chat_bubble(new_msg, role)]
-
-    if next_msg:
-        out.append(chat_bubble(next_msg, role))
+    
 
     return Div(*out)
 
@@ -336,6 +335,11 @@ async def beneficiary_close(request, sid: str):
         id="chat-container"
     )
     return layout(request, content, page_title = "End Chat - MedAIChat")
+# consider return Div(
+    #     Span("🛑 This session has been closed.", cls="alert alert-info w-full text-center"),
+    #     id="chat-messages",
+    #     cls="p-4"
+    # )
 
 ###  Nurse Part 
 @rt("/nurse")
@@ -387,7 +391,7 @@ async def nurse_send(request, sid : str):
     message = form.get("message", "").strip()
 
     if not message:
-        return await poll_chat(request, sid)
+        return ""
     
     msg = Message(role="nurse", content="message", timestamp=datetime.now(), phase="chat")
     db_save_message(db, sid, msg)
@@ -414,7 +418,7 @@ async def nurse_close(request, sid: str):
     db.commit()
 
     # Return empty string to remove the row from the dashboard
-    return ""
+    return Div(Span("🛑  This session has been closed.", cls="alert alert-info w-full text-center"),id="chat-message", cls="p-4")
 
 @rt("/nurse/session/{sid}") # not used 
 @login_required

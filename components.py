@@ -224,7 +224,7 @@ def nurse_chat_fragment(sid: str, s:ChatSession, user_role):
     Returns:
         Div: A single container encapsulating the full nurse view.
     """
-    return Div(chat_window(s.messages, sid, user_role), nurse_form(sid), id="chat-fragment")
+    return Div(chat_window(s.messages, sid, user_role), nurse_form(sid, s), id="chat-fragment")
 
 
 def summary_message_fragment(content : str):
@@ -331,7 +331,7 @@ def beneficiary_controls(s: ChatSession) -> Any:
     
 
 
-def nurse_form(sid: str) -> Any:
+def nurse_form(sid: str, s: ChatSession) -> Any:
     """ 
     Render the nurse reply form for an active chat session.
     
@@ -343,11 +343,15 @@ def nurse_form(sid: str) -> Any:
     Returns:
         Any: FastHTML Form component.
     """
-    return Form(Input(type="hidden", name="sid", value=sid),
-        Input(name="message", id="chat-input", placeholder="Reply to beneficiary...", cls="input input-bordered w-full"),
-        Button("Send", cls="btn btn-primary mt-2", type="submit", hx_disable_elt="this"),
-        hx_post=f"/nurse/{sid}/send", hx_target="#chat-messages",hx_swap="innerHTML",
-        hx_on="htmx:afterRequest: this.reset()", method="post") 
+
+    return Form(
+        Div(
+            Div(close_chat_button(sid, "nurse"), cls="flex gap-2"),
+            Input(type="hidden", name="sid", value=sid),
+            Input(name="message", id="chat-input", placeholder="Reply to beneficiary...", cls="input input-bordered w-full"),
+            Button("Send", cls="btn btn-primary mt-2", type="submit", hx_disable_elt="this"),
+            hx_post=f"/nurse/{sid}/send", hx_target="#chat-messages",hx_swap="innerHTML",
+            hx_on="htmx:afterRequest: this.reset()", method="post"))
 
 
 
@@ -472,19 +476,10 @@ def nurse_sidebar_link(count: int): # Not used
     badge = Span(count, cls="badge badge-error ml-2") if count > 0 else ""
     return Li(A(href="/nurse")("Active Cases", badge))
 
-def close_session_button(sid: str): 
-    """
-    The indvidual close button.
-    """
-    return Button("Archive Case",
-                  hx_post=f"/nurse/session/{sid}/close",
-                  hx_confirm="Are you sure you want to close this case?",
-                  hx_target="closest tr",
-                  hx_swap="delete", 
-                  cls="btn btn-xs btn-outline btn-error")
 
 
-def nurse_case_row(s:ChatSession):
+
+def nurse_case_row(s:ChatSession): 
     """
     Renders a single row in the nurse dashboard table.
     """
@@ -500,7 +495,7 @@ def nurse_case_row(s:ChatSession):
         Td(Span(s.state.name, cls=f"badge {status_cls} badge-sm")),
         Td(
             A("Open Chat", href="/nurse/chat/{s.session_id}", cls="btn btn-xs btn-ghost"),
-            close_session_button(s.session_id)
+            close_chat_button(s.session_id, "nurse")
         ),
         id=f"session-row-{s.session_id}"
     )
