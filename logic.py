@@ -5,6 +5,8 @@ from models import ChatSession, ChatState, Message, INTAKE_SCHEMA
 from config import *
 
 
+def is_hx(request):
+    return request.headers.get("HX-Request") == "true"
 
 
 def intake_finished(s: ChatSession) -> bool:
@@ -228,9 +230,14 @@ def db_get_session(db: sqlite3.Connection, sid: str) -> ChatSession | None:
     Retrieves a single session object by its ID.
     """
     row = db.execute("SELECT * FROM sessions WHERE id = ?", (sid,)).fetchone()
+    if not row:
+        print(f"[db_get_session] No session for sid={sid}")
+        return None
+    print(f"[db_get_session] sid={row['id']} state={row['state']} intake_json={row['intake_json']}")
     return ChatSession.from_row(row) if row else None
 
 def db_get_user_sessions(db, user_email: str) -> list[ChatSession]:
+    
     """
     Retrieves all chat sessions for a specific user, sorted by most recent.
     """
@@ -297,8 +304,11 @@ def get_session_helper(db: sqlite3.Connection, sid: str) -> ChatSession:
     Helper function to retrieve a session and its all messages in one go..
     """
     s = db_get_session(db, sid)
-    if s:
-        s.messages = db_get_messages(db, sid)
+    if not s:
+        return None
+    s.messages = db_get_messages(db, sid)
+    
+    print(f"[get_session_helper] sid={sid} state={s.state} intake_index={s.intake.current_index} completed={s.intake.completed}")
     return s
 
 def db_get_messages(db: sqlite3.Connection, sid: str) -> list[Message]:

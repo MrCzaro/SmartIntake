@@ -109,14 +109,30 @@ class ChatSession:
     def id(self):
         return self.session_id
 
+    @staticmethod
+    def _coerce_state(raw) -> ChatState:
+        """
+        Converts DB value to ChatState safely.
+        Defaults to INTAKE if anything wrong.
+        """
+        if isinstance(raw, ChatState):
+            return raw
+        if isinstance(raw, str):
+            raw = raw.strip().upper()
+            if raw in ChatState.__members__:
+                return ChatState[raw]
+            
+        # Fallback - intake is the default
+        return ChatState.INTAKE
+    
     @classmethod
     def from_row(cls, row):
-        """Creates a ChatSession 'shell' from a database row dictionary."""
+        """Creates a ChatSession from DB row dictionary."""
         # Handle the Intake JSON
         raw_json = row["intake_json"]
         try:
             intake_data = json.loads(raw_json) if raw_json else "{}"
-        except (json.JSONDecodeError, TypeError):
+        except Exception:
             intake_data = {}
      
         intake_state = IntakeState(
@@ -130,11 +146,12 @@ class ChatSession:
             ca = datetime.fromisoformat(raw_date.replace(" ", "T")) if raw_date else datetime.now()
         except:
             ca = datetime.now()
- 
+
+        state = cls._coerce_state(row["state"])
         return cls(
             session_id=row["id"],
             user_email=row["user_email"],
-            state=ChatState(row["state"]),
+            state=state,
             created_at=ca,
             summary=row["summary"],
             intake=intake_state,

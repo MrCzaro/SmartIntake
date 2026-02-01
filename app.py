@@ -125,6 +125,7 @@ def start(request):
 
     # Create new session
     s = ChatSession(session_id=sid, user_email=email)
+    s.state = ChatState.INTAKE
 
     # Create first message
     first_question = INTAKE_SCHEMA[0]["q"]
@@ -135,6 +136,7 @@ def start(request):
     if not success:
         return layout(request, Div("Sorry, we could not start your session.", cls="alert alert-error"), "Error - MedAIChat")
 
+    db_update_session(db, sid, state=ChatState.INTAKE)
     return Redirect(f"/beneficiary/{sid}")
 
 ### Chat Route
@@ -196,7 +198,7 @@ def beneficiary_dashboard(request):
                 ),
                 Tbody(
                     *[Tr(Td(s.created_at.strftime("%Y-%m-%d %H:%M")), Td(s.state.value),
-                    Td(A("Open", href=f"/beneficiary{s.id}", cls="btn btn-sm btn-outline"))) for s in sessions]
+                    Td(A("Open", href=f"/beneficiary/{s.id}", cls="btn btn-sm btn-outline"))) for s in sessions]
                 ),
                 cls="table w-full"
                 )
@@ -241,17 +243,19 @@ async def beneficiary_send(request, sid: str):
     form = await request.form()
     message = form.get("message", "").strip()
 
-    if not message: return "" # await poll_chat(request, sid)
+    if not message: return "" 
     
     user_msg  = Message(role=role, content=message, timestamp=datetime.now(), phase = "intake" if s.state == ChatState.INTAKE else "chat")
-    db_save_message(db, sid, user_msg )
+    db_save_message(db, sid, user_msg)
     # Reset is_read 
     db_update_session(db, sid, is_read=False)
 
     out = [chat_bubble(user_msg, role)]
-    next_msg = None
     
-    if s.state == ChatState.INTAKE and s.intake and not s.intake.completed:
+    # Debug 
+    print(f"[beneficiary_send] sid={sid} state={s.state} intake={getattr(s, 'intake', None)}")
+    
+    if s.state == ChatState.INTAKE and getattr(s, 'intake', None) and not s.intake.completed:
         
         red_flags = ["chest pain", "shortness of breath", "can't breathe", "severe bleeding", "unconscious", "stroke", "heart attack"]
         
@@ -261,26 +265,37 @@ async def beneficiary_send(request, sid: str):
             return Div(*out)
         
         intake = s.intake
-        q_info = INTAKE_SCHEMA[intake.current_index]
+        print(f"[beneficiary_send] intake.current_index BEFORE = {intake.current_index}")
+
+
+        if intake.current_index >= len(INTAKE_SCHEMA):
+            intake.completed = True
+            db_update_session(db, sid, intake_json=json.dumps(asdict(s.intake)))
+            db.commit()
+            return Div(*out)
         
+        q_info = INTAKE_SCHEMA[intake.current_index]
         intake.answers[q_info["id"]] = message
         intake.current_index += 1
-
+        
         db_update_session(db, sid, intake_json=json.dumps(asdict(s.intake)))
+        
+        print(f"[beneficiary_send] intake.current_index AFTER = {intake.current_index}")
 
         if intake.current_index >= len(INTAKE_SCHEMA):
             intake.completed = True
             db_update_session(db, sid, intake_json=json.dumps(asdict(s.intake)))
             await complete_intake(s, db)
+            db.commit()
+            return Div(*out)
         else:
             next_q = INTAKE_SCHEMA[intake.current_index]["q"]
             next_msg = Message(role="assistant", content=next_q, timestamp=datetime.now(), phase="intake")
             db_save_message(db, sid, next_msg)
             out.append(chat_bubble(next_msg, role))
-
+    
     db.commit()
     
-
     return Div(*out)
 
 
@@ -324,22 +339,24 @@ async def beneficiary_close(request, sid: str):
     if guard: return guard
     # Update Logic
     close_session(s, db)
+    db_save_message(db, sid, Message(role="assistant", content="Session closed by beneficiary", timestamp=datetime.now(), phase="system"))
+    db.commit()
 
-    content =Div(
-        Card(
-            H3("Session Ended"),
-            P("Thank you for using MedAIChat. Your session has been saved."),
-            A("Return to Home", href="/", cls="btn btn-primary"),
-            cls="p-8 text-center"
-        ),
-        id="chat-container"
-    )
+    if is_hx(request):
+        return Div(Span("🛑 This session has been closed.", cls="alert alert-info w-full text-center"), id="chat-messages", cls="p-4")
+    else:  
+
+        content =Div(
+            Card(
+                H3("Session Ended"),
+                P("Thank you for using MedAIChat. Your session has been saved."),
+                A("Return to Home", href="/", cls="btn btn-primary"),
+                cls="p-8 text-center"
+            ),
+            id="chat-container"
+        )
+
     return layout(request, content, page_title = "End Chat - MedAIChat")
-# consider return Div(
-    #     Span("🛑 This session has been closed.", cls="alert alert-info w-full text-center"),
-    #     id="chat-messages",
-    #     cls="p-4"
-    # )
 
 ###  Nurse Part 
 @rt("/nurse")
@@ -393,7 +410,7 @@ async def nurse_send(request, sid : str):
     if not message:
         return ""
     
-    msg = Message(role="nurse", content="message", timestamp=datetime.now(), phase="chat")
+    msg = Message(role="nurse", content=message, timestamp=datetime.now(), phase="chat")
     db_save_message(db, sid, msg)
     db_update_session(db, sid, is_read=False)
     db.commit()
@@ -417,9 +434,21 @@ async def nurse_close(request, sid: str):
                     Message(role="assistant", content="Session closed by nurse.", timestamp=datetime.now(), phase="system"))
     db.commit()
 
-    # Return empty string to remove the row from the dashboard
-    return Div(Span("🛑  This session has been closed.", cls="alert alert-info w-full text-center"),id="chat-message", cls="p-4")
+    if is_hx(request):
+        return Div(Span("🛑  This session has been closed.", cls="alert alert-info w-full text-center"), id="chat-messages", cls="p-4")
+    else:
+        content = Div(
+            Card(
+                H3("Session Ended"),
+                P("Thank you. Your session has been saved."),
+                A("Return to Home", href="/", cls="btn btn-primary"),
+                cls="p8 text-center"
+            ),
+            id="chat-container"
+        )
+        return layout(request, content, page_title="End Chat - MedAIChat")
 
+        
 @rt("/nurse/session/{sid}") # not used 
 @login_required
 def get_session_detail(request, sid: str):

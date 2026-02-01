@@ -164,7 +164,7 @@ def chat_window(messages: list[Message], sid: str, user_role: str):
         id="chat-window",
         cls="flex flex-col gap-2 overflow-y-auto h-[60vh]",
         hx_get=f"/chat/{sid}/poll",
-        hx_trigger="every 2s",
+        hx_trigger="every 3s",
         hx_swap="innerHTML",
         hx_target="#chat-messages"
     )
@@ -277,8 +277,8 @@ def beneficiary_form(sid: str, s: ChatSession) -> Any:
     """
     Render the beneficiary message input form.
     
-    Sends a chat message to the backend using HTMX and updates
-    the chat window with the server-rendered response.
+    Sends a chat message to the backend using HTMX and appends
+    the server-rendered bubble(s) into the chat window.
     
     Args:
         sid (str): Chat session ID.
@@ -286,6 +286,13 @@ def beneficiary_form(sid: str, s: ChatSession) -> Any:
     Returns:
         Any: FastHTML Form component.
     """
+    if s.state == ChatState.CLOSED:
+        return Div(
+            Div(Span("🛑 This session is closed.", cls="alert alert-info w-full text-center")),
+            Div(A("Back to Dashboard", href="/beneficiary", cls="btn btn-primary mt-4")),
+            cls="p-4"
+        )
+    
     is_escalated = s.state in (ChatState.URGENT, ChatState.NURSE_ACTIVE)
 
     if is_escalated:
@@ -294,11 +301,21 @@ def beneficiary_form(sid: str, s: ChatSession) -> Any:
         sos_btn = Button("🆘", hx_post=f"/beneficiary/{sid}/emergency", hx_target="#chat-messages", hx_confirm="Escalate to a nurse?",
                 hx_on__htmx_config_request="this.setAttribute('disabled', 'disabled')", type="button",  cls="btn btn-error btn-square", title="Emergency Escalation")
 
-    return Form(Div(sos_btn, close_chat_button(sid, "beneficiary"),
+    return Form(
+        Div(
+            sos_btn, 
+            close_chat_button(sid, "beneficiary"),
             Input(name="message", id="chat-input", placeholder="Type your message...", cls="input input-bordered w-full"),
             Button("Send", cls="btn btn-primary mt-2", type="submit", hx_disable_elt="this"),
-            cls="flex gap-2 p-4 bg-base-200 border-t items-center"), id="beneficiary-input-form", hx_post=f"/beneficiary/{sid}/send",
-            hx_target="#chat-messages", hx_swap="innerHTML", hx_on="htmx:afterRequest: this.reset()", method="post")
+            cls="flex gap-2 p-4 bg-base-200 border-t items-center"
+        ), 
+        id="beneficiary-input-form", 
+        hx_post=f"/beneficiary/{sid}/send",
+        hx_target="#chat-messages", 
+        hx_swap="beforeend", 
+        hx_on="htmx:afterRequest: this.reset(); htmx:afterSwap: (function(){var el=document.getElementById('chat-window'); if(el) el.scrollTop = el.scrollHeight; })()", 
+        method="post"
+        )
 
 
 def beneficiary_controls(s: ChatSession) -> Any:
@@ -317,7 +334,7 @@ def beneficiary_controls(s: ChatSession) -> Any:
     Returns:
         Any: A FastHTML component representing the appropriate UI message.
     """
-
+    content = ""
     if s.state == ChatState.INTAKE:
         content =  Div("Please answer all intake questions to continue.", cls="alert alert-warning mt-4")
     
@@ -350,9 +367,14 @@ def nurse_form(sid: str, s: ChatSession) -> Any:
             Input(type="hidden", name="sid", value=sid),
             Input(name="message", id="chat-input", placeholder="Reply to beneficiary...", cls="input input-bordered w-full"),
             Button("Send", cls="btn btn-primary mt-2", type="submit", hx_disable_elt="this"),
-            hx_post=f"/nurse/{sid}/send", hx_target="#chat-messages",hx_swap="innerHTML",
-            hx_on="htmx:afterRequest: this.reset()", method="post"))
-
+            cls="flex flex-col gap-2 p-4 bg-base-200 border-t"
+        ),
+        hx_post=f"/nurse/{sid}/send",
+        hx_target="#chat-messages",
+        hx_swap="beforeend",
+        hx_on="htmx:afterRequest: this.reset(); htmx:afterSwap: (function(){var el=document.getElementById('chat-window'); if(el) el.scrollTop = el.scrollHeight; })()",
+        method="post"
+    )
 
 
 def login_card(error_message: str | None = None, prefill_email: str = "") -> Any:
