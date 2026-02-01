@@ -79,32 +79,6 @@ def urgent_counter(count: int):
     return Div( f"Urgent Cases: {count}", id="urgent-count", cls=f"badge {badge_cls} p-4 font-bold", hx_swap_oob="true" if count is not None else "false")
 
 
-def nurse_case_card(s: ChatSession): # not used
-    """
-    Renders a preview card for a specific chat session in the nurse dashboard.
-    
-    The card displays the session ID, the most recent message, and a prominent
-    'URGENT' badge if the session state is set to URGENT.
-    It also provides a link to open the full case view.
-    
-    Args: 
-        s (ChatSession): The session data used to populate the card.
-        
-    Returns:
-        Div: A styled card component using MonsterUI/DaisyUI classes.
-    """
-    last_msg = s.messages[-1].content if s.messages else "No messages yet."
-
-    is_urgent = s.state == ChatState.URGENT
-
-    # Conditional styling for urgent alerts
-    urgent_styles = "bg-error/10 border-l-8 border-error shadow-lg" if is_urgent else "bg-base-100"
-    
-    return Div(
-        DivLAligned( Div(f"Session: {s.session_id[:8]}", cls="font-mono text-sm font-bold"), Span("URGENT", cls="badge badge-error ml-2") if is_urgent else Span()),
-        Div(f"Last message: {last_msg[:80]}...", cls="text-sm mt-1"),
-        A("Open case", href=f"/nurse/{s.session_id}", cls="btn btn-primary btn-sm mt-2 w-full"),cls=f"card {urgent_styles} shadow p-4 transition-all duration-300")
-
 
 def chat_bubble(msg: Message, user_role: str):
     """
@@ -169,28 +143,22 @@ def chat_window(messages: list[Message], sid: str, user_role: str):
         hx_target="#chat-messages"
     )
 
-def close_chat_button(sid: str, role: str):
+def close_chat_button(sid: str, role: str) -> Any:
     """
     A consistent 'End Chat' button for both roles.
     """
-    close_cls =  "btn btn-warning btn-square"
-    label = "✖"
-    tit = "Close Session"
-    if role == "nurse":
-        return A(
-            label, 
-            hx_post=f"/nurse/session/{sid}/close",
-            hx_confirm="Are you sure you want to end this session?",
-            cls=close_cls,
-            title=tit)
-    return A(
-        label,
-        hx_post=f"/beneficiary/{sid}/close",
-        hx_confirm="Are you sure you want to end this session?",
-        hx_target="body",
-        cls=close_cls,
-        title=tit
+    endpoint = f"/{role}/{sid}/close" if role == "beneficiary" else f"/nurse/session/{sid}/close"
+    return Button(
+        "✖",
+        type="button",
+        cls = "btn btn-warning btn-square",
+        hx_post=endpoint,
+        hx_target="#chat-root", #chat-messages
+        hx_swap="outerHTML",
+        hx_confirm = "Are you sure you want to end this session?"
+
     )
+
 
 def beneficiary_chat_fragment(sid: str, s:ChatSession, user_role: str):
     """
@@ -227,6 +195,33 @@ def nurse_chat_fragment(sid: str, s:ChatSession, user_role):
     return Div(chat_window(s.messages, sid, user_role), nurse_form(sid, s), id="chat-fragment")
 
 
+def render_chat_view(s: ChatSession, role:str):
+
+    # Header     
+    header = emergency_header(s),
+    
+    massages_div = Div(*[chat_bubble(m, role) for m in s.messages], id="chat-messages", cls="flex flex-col gap-2")
+
+    
+    if role == "beneficiary":
+        form = beneficiary_form(s.session_id, s)
+        controls = beneficiary_controls(s)
+    if role == "nurse":
+        form = nurse_form(s.session_id, s)
+        controls = Div() # placeholder
+
+    chat_window_div = Div(massages_div, id="chat-window", cls="flex flex-col gap2 overflow-y-auto h-[60vh]")
+
+
+    return Div(
+        header,
+        Div(chat_window_div, form, controls, cls="container mx-auto p-4"),
+        id="chat-root", 
+        cls="min-h-screen bg-base-100"
+        )
+
+
+    
 def summary_message_fragment(content : str):
     """
     Renders a specialized UI card for displaying an AI-generated intake summary.
@@ -257,6 +252,8 @@ def emergency_header(s: ChatSession):
     Returns: 
         Div: A navbar component with a unique ID for HTMX Out-of-Band (OOB) updates.
     """
+    if s.state == ChatState.CLOSED:
+        return Div(Span("Session closed", cls="badge badge-outline"), cls="chat-header")
     is_urgent = s.state == ChatState.URGENT
 
     status_content = Span("🆘 NURSE NOTIFIED - Responding Shortly", cls="font-bold animate-pulse") if is_urgent else \
@@ -311,12 +308,11 @@ def beneficiary_form(sid: str, s: ChatSession) -> Any:
         ), 
         id="beneficiary-input-form", 
         hx_post=f"/beneficiary/{sid}/send",
-        hx_target="#chat-messages", 
-        hx_swap="beforeend", 
+        hx_target="#chat-root", 
+        hx_swap="outerHTML", 
         hx_on="htmx:afterRequest: this.reset(); htmx:afterSwap: (function(){var el=document.getElementById('chat-window'); if(el) el.scrollTop = el.scrollHeight; })()", 
         method="post"
         )
-
 
 def beneficiary_controls(s: ChatSession) -> Any:
     """
@@ -343,10 +339,14 @@ def beneficiary_controls(s: ChatSession) -> Any:
     
     if s.state in (ChatState.NURSE_ACTIVE, ChatState.URGENT):
         content = Div("You may continue chatting with the nurse.", cls = "alert alert-success mt-4")
-    
+    if s.state == ChatState.CLOSED:
+        content = Div(
+            Div(Span("🛑 This session is closed.", cls="alert alert-info mt-4")),
+            Div(A("Back to Dashboard", href="/beneficiary", cls="btn btn-primary mt-4")),
+            cls="p-4"
+        )
     return Div(content, id="beneficiary-controls")
     
-
 
 def nurse_form(sid: str, s: ChatSession) -> Any:
     """ 
@@ -360,7 +360,12 @@ def nurse_form(sid: str, s: ChatSession) -> Any:
     Returns:
         Any: FastHTML Form component.
     """
-
+    if s.state == ChatState.CLOSED:
+        return Div(
+            Div(Span("🛑 This session is closed.", cls="alert alert-info w-full text-center")),
+            Div(A("Back to Dashboard", href="/nurse", cls="btn btn-primary mt-4")),
+            cls="p-4"
+        )
     return Form(
         Div(
             Div(close_chat_button(sid, "nurse"), cls="flex gap-2"),
@@ -370,8 +375,8 @@ def nurse_form(sid: str, s: ChatSession) -> Any:
             cls="flex flex-col gap-2 p-4 bg-base-200 border-t"
         ),
         hx_post=f"/nurse/{sid}/send",
-        hx_target="#chat-messages",
-        hx_swap="beforeend",
+        hx_target="#chat-root",
+        hx_swap="outerHTML",
         hx_on="htmx:afterRequest: this.reset(); htmx:afterSwap: (function(){var el=document.getElementById('chat-window'); if(el) el.scrollTop = el.scrollHeight; })()",
         method="post"
     )
@@ -428,8 +433,30 @@ def signup_card(error_message: str | None = None, prefill_email: str = "") -> An
 
 
 
+def session_row(s: ChatSession):
+    """
+    Renders a single row in the nurse's archive table.
+    Highlights unread sessions to prioritize patient safety.
+    """
+    row_style = "bg-blue-50 font-bold" if not s.is_read else ""
+
+    return Tr(style=row_style)(
+        Td(s.user_email),
+        Td(Span(s.state.value.upper(), cls=f"badge {'badge-error' if s.state == ChatState.URGENT else 'badge-info'}")),
+        Td(str(s.intake.answers.get("chief_complaint", "N/A")).capitalize()),
+        Td(
+            Div(
+                A("Review", href=f"/nurse/{s.session_id}", cls="btn btn-primary btn-sm"),
+                cls="flex gap-2"
+                )
+            )
+        )
 
 
+
+
+
+# Not used recently 
 
 def past_sessions_table(session_list: list[ChatSession]): # used in nurse archive so far not used
     """
@@ -450,56 +477,6 @@ def past_sessions_table(session_list: list[ChatSession]): # used in nurse archiv
         ))
     
     return Table(header, Tbody(*rows), cls="table w-full")
-
-def session_row(s: ChatSession):
-    """
-    Renders a single row in the nurse's archive table.
-    Highlights unread sessions to prioritize patient safety.
-    """
-    row_style = "bg-blue-50 font-bold" if not s.is_read else ""
-
-    return Tr(style=row_style)(
-        Td(s.user_email),
-        Td(Span(s.state.value.upper(), cls=f"badge {'badge-error' if s.state == ChatState.URGENT else 'badge-info'}")),
-        Td(s.intake.answers.get("chief_complaint", "N/A").capitalize()),
-        Td(
-            Div(
-                A("Review", href=f"/nurse/{s.session_id}", cls="btn btn-primary btn-sm"),
-                cls="flex gap-2"
-                )
-            )
-        )
-
-def render_nurse_review(s: ChatSession, messages: list[Message]): # used in session details, not used so far 
-    """
-    Creates the full HTML page for the nurse to review a case.
-
-    Args:
-        s (ChatSession): The chat session data.
-        messages (list[Message]): The list of chat messages in the session.
-    """
-
-    return Titled(f"Review: {s.user_email}",
-                  Card(
-                      H3("Patient Intake Data"),
-                      Ul(*[Li(f"{k.replace("_", "").capitalize()}: {v}") for k, v in s.intake.answers.items()])
-                  ),
-                  Div(id="chat-history", cls="my-4")(
-                      *[chat_bubble(m, "nurse") for m in messages]
-                  ),
-                  # A place for the nurse to write their own summary/notes
-                  Form(hx_post=f"/nurse/session/{s.session_id}/finalize")(
-                      Textarea(name="nurse_summary", placeholder="Enter final clinical notes and summary...",
-                      cls="textarea textarea-bordered w-full"),
-                      Button("Finalize & Archive", cls="btn btn-primary mt-2")
-                  ))
-
-def nurse_sidebar_link(count: int): # Not used
-    badge = Span(count, cls="badge badge-error ml-2") if count > 0 else ""
-    return Li(A(href="/nurse")("Active Cases", badge))
-
-
-
 
 def nurse_case_row(s:ChatSession): 
     """
@@ -536,3 +513,31 @@ def nurse_dashboard_table(sessions):
         cls="table table-zebra w-full"
     )
     return tab
+
+def render_nurse_review(s: ChatSession, messages: list[Message]): # used in session details, not used so far 
+    """
+    Creates the full HTML page for the nurse to review a case.
+
+    Args:
+        s (ChatSession): The chat session data.
+        messages (list[Message]): The list of chat messages in the session.
+    """
+
+    return Titled(f"Review: {s.user_email}",
+                  Card(
+                      H3("Patient Intake Data"),
+                      Ul(*[Li(f"{k.replace("_", "").capitalize()}: {v}") for k, v in s.intake.answers.items()])
+                  ),
+                  Div(id="chat-history", cls="my-4")(
+                      *[chat_bubble(m, "nurse") for m in messages]
+                  ),
+                  # A place for the nurse to write their own summary/notes
+                  Form(hx_post=f"/nurse/session/{s.session_id}/finalize")(
+                      Textarea(name="nurse_summary", placeholder="Enter final clinical notes and summary...",
+                      cls="textarea textarea-bordered w-full"),
+                      Button("Finalize & Archive", cls="btn btn-primary mt-2")
+                  ))
+
+def nurse_sidebar_link(count: int): # Not used
+    badge = Span(count, cls="badge badge-error ml-2") if count > 0 else ""
+    return Li(A(href="/nurse")("Active Cases", badge))

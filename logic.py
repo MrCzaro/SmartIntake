@@ -5,10 +5,6 @@ from models import ChatSession, ChatState, Message, INTAKE_SCHEMA
 from config import *
 
 
-def is_hx(request):
-    return request.headers.get("HX-Request") == "true"
-
-
 def intake_finished(s: ChatSession) -> bool:
     """
     Checks if the beneficiary has answered all questions in the intake schema.
@@ -18,15 +14,6 @@ def intake_finished(s: ChatSession) -> bool:
     """
     return s.intake.current_index >= len(INTAKE_SCHEMA)
 
-def current_intake_question(s: ChatSession) -> str | None:
-    """
-    Retrieves the text of the next question the beneficairy needs to answer.
-    
-    Returns:
-        str: The question text, or None if the intake is already finised.
-    """
-    if intake_finished(s): return None
-    return INTAKE_SCHEMA[s.intake.current_index]["q"]
 
 def system_message(sid:str,  db: sqlite3.Connection, text: str):
     """
@@ -237,7 +224,7 @@ def db_get_session(db: sqlite3.Connection, sid: str) -> ChatSession | None:
     return ChatSession.from_row(row) if row else None
 
 def db_get_user_sessions(db, user_email: str) -> list[ChatSession]:
-    
+
     """
     Retrieves all chat sessions for a specific user, sorted by most recent.
     """
@@ -246,26 +233,8 @@ def db_get_user_sessions(db, user_email: str) -> list[ChatSession]:
     # Map the rows to ChatSession object
     return [ChatSession.from_row(row) for row in rows]
 
-def db_get_nurse_archive(db: sqlite3.Connection) -> list[ChatSession]:
-    """
-    Fetches all sessions that are ready for review or completed.
-    Sorted by the most recent activity first.
-    """
-    rows = db.execute("SELECT * FROM sessions WHERE state != 'intake' ORDER BY id DESC").fetchall()
-
-    return [ChatSession.from_row(row) for row in rows]
 
 
-def db_cleanup_stale_sessions(db: sqlite3.Connection):
-    """
-    Automatically closes sessions that have been inactive for > 20 minutes.
-    """
-    # Calculate the cutoff time (20 minutes ago)
-    timeout_limit = (datetime.now() - timedelta(minutes=20)).isoformat()
-
-    # Update sessions that are in INTAKE and have not been updated recently.
-    db.execute("UPDATE sessions SET state = ? WHERE state = ? AND created_at < ?", (ChatState.CLOSED.value, ChatState.INTAKE.value, timeout_limit))
-    db.commit()
 
 def get_nurse_dashboard_data(db: sqlite3.Connection):
     """
@@ -298,6 +267,9 @@ def close_session(s: ChatSession, db: sqlite3.Connection):
     close_msg = Message(role="assistant", content="This session has been closed.", timestamp=datetime.now(), phase="system")
     db_save_message(db, s.id, close_msg)
     db.commit()
+    import traceback
+    print("Close session CALLED")
+    traceback.print_stack(limit=6)
 
 def get_session_helper(db: sqlite3.Connection, sid: str) -> ChatSession:
     """
@@ -329,5 +301,32 @@ def get_urgent_count(db: sqlite3.Connection) -> int:
     # Only count sessions in URGENT state
     result = db.execute("SELECT COUNT(*) FROM sessions WHERE state = ?",(ChatState.URGENT.value,)).fetchone()
     return result[0] if result else 0
+
+
+
+# not used 
+
+def db_get_nurse_archive(db: sqlite3.Connection) -> list[ChatSession]:
+    """
+    Fetches all sessions that are ready for review or completed.
+    Sorted by the most recent activity first.
+    """
+    rows = db.execute("SELECT * FROM sessions WHERE state != 'intake' ORDER BY id DESC").fetchall()
+
+    return [ChatSession.from_row(row) for row in rows]
+
+def db_cleanup_stale_sessions(db: sqlite3.Connection):
+    """
+    Automatically closes sessions that have been inactive for > 20 minutes.
+    """
+    # Calculate the cutoff time (20 minutes ago)
+    # timeout_limit = (datetime.now() - timedelta(minutes=20)).isoformat()
+
+    # Update sessions that are in INTAKE and have not been updated recently.
+    ####
+    print(f"[db_cleanup_stale_session] disabled")
+    return
+    # db.execute("UPDATE sessions SET state = ? WHERE state = ? AND created_at < ?", (ChatState.CLOSED.value, ChatState.INTAKE.value, timeout_limit))
+    # db.commit()
 
 
