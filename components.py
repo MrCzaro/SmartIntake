@@ -160,47 +160,13 @@ def close_chat_button(sid: str, role: str) -> Any:
     )
 
 
-def beneficiary_chat_fragment(sid: str, s:ChatSession, user_role: str):
-    """
-    Assembles the complete chat interface for a beneficiary.
-
-    This top-level fragment combines the chat history window, the message 
-    input form, and the state-dependent controls (like 'Please answer all intake questions').
-
-    Args:
-        sid (str): The unique session ID.
-        s (ChatSession): The current state and data of the chat session.
-        user_role (str): The current user's role.
-
-    Returns:
-        Div: A single container encapsulating the full beneficiary view.
-    """
-    return Div(chat_window(s.messages, sid, user_role), beneficiary_form(sid,s), beneficiary_controls(s), id="chat-fragment")
-
-def nurse_chat_fragment(sid: str, s:ChatSession, user_role):
-    """
-    Assembles the complete chat interface for a nurse.
-    
-    Similar to the beneficiary fragment, but provides the nurse-specific
-    form and omits the intake progress controls.
-    
-    Args:
-        sid (str): The unique session ID.
-        s (ChatSession): The current state and data of the chat session.
-        user_role (str): The current user's role.
-        
-    Returns:
-        Div: A single container encapsulating the full nurse view.
-    """
-    return Div(chat_window(s.messages, sid, user_role), nurse_form(sid, s), id="chat-fragment")
-
 
 def render_chat_view(s: ChatSession, role:str):
 
     # Header     
-    header = emergency_header(s),
+    header = emergency_header(s)
     
-    massages_div = Div(*[chat_bubble(m, role) for m in s.messages], id="chat-messages", cls="flex flex-col gap-2")
+    window = chat_window(s.messages, s.session_id, role)
 
     
     if role == "beneficiary":
@@ -210,12 +176,17 @@ def render_chat_view(s: ChatSession, role:str):
         form = nurse_form(s.session_id, s)
         controls = Div() # placeholder
 
-    chat_window_div = Div(massages_div, id="chat-window", cls="flex flex-col gap2 overflow-y-auto h-[60vh]")
 
+    # if s.state == ChatState.CLOSED:
+    #     return Div(
+    #         emergency_header(s),
+    #         chat_window(s.messages, s.session_id, role),
+    #         Div("This session is closed.", cls="alert alert-info mt-4")
+    #     )
 
     return Div(
         header,
-        Div(chat_window_div, form, controls, cls="container mx-auto p-4"),
+        Div(window, form, controls, cls="container mx-auto p-4"),
         id="chat-root", 
         cls="min-h-screen bg-base-100"
         )
@@ -253,7 +224,7 @@ def emergency_header(s: ChatSession):
         Div: A navbar component with a unique ID for HTMX Out-of-Band (OOB) updates.
     """
     if s.state == ChatState.CLOSED:
-        return Div(Span("Session closed", cls="badge badge-outline"), cls="chat-header")
+        return ""
     is_urgent = s.state == ChatState.URGENT
 
     status_content = Span("🆘 NURSE NOTIFIED - Responding Shortly", cls="font-bold animate-pulse") if is_urgent else \
@@ -295,7 +266,7 @@ def beneficiary_form(sid: str, s: ChatSession) -> Any:
     if is_escalated:
         sos_btn = Span("✅ Notified", cls="btn btn-ghost no-animation text-success btn-square")
     else:
-        sos_btn = Button("🆘", hx_post=f"/beneficiary/{sid}/emergency", hx_target="#chat-messages", hx_confirm="Escalate to a nurse?",
+        sos_btn = Button("🆘", hx_post=f"/beneficiary/{sid}/emergency", hx_target="#chat-root", hx_swap="outerHTML", hx_confirm="Escalate to a nurse?",
                 hx_on__htmx_config_request="this.setAttribute('disabled', 'disabled')", type="button",  cls="btn btn-error btn-square", title="Emergency Escalation")
 
     return Form(
@@ -308,8 +279,8 @@ def beneficiary_form(sid: str, s: ChatSession) -> Any:
         ), 
         id="beneficiary-input-form", 
         hx_post=f"/beneficiary/{sid}/send",
-        hx_target="#chat-root", 
-        hx_swap="outerHTML", 
+        hx_target="#chat-messages", 
+        hx_swap="beforeend", 
         hx_on="htmx:afterRequest: this.reset(); htmx:afterSwap: (function(){var el=document.getElementById('chat-window'); if(el) el.scrollTop = el.scrollHeight; })()", 
         method="post"
         )
@@ -339,12 +310,7 @@ def beneficiary_controls(s: ChatSession) -> Any:
     
     if s.state in (ChatState.NURSE_ACTIVE, ChatState.URGENT):
         content = Div("You may continue chatting with the nurse.", cls = "alert alert-success mt-4")
-    if s.state == ChatState.CLOSED:
-        content = Div(
-            Div(Span("🛑 This session is closed.", cls="alert alert-info mt-4")),
-            Div(A("Back to Dashboard", href="/beneficiary", cls="btn btn-primary mt-4")),
-            cls="p-4"
-        )
+    
     return Div(content, id="beneficiary-controls")
     
 
@@ -360,12 +326,7 @@ def nurse_form(sid: str, s: ChatSession) -> Any:
     Returns:
         Any: FastHTML Form component.
     """
-    if s.state == ChatState.CLOSED:
-        return Div(
-            Div(Span("🛑 This session is closed.", cls="alert alert-info w-full text-center")),
-            Div(A("Back to Dashboard", href="/nurse", cls="btn btn-primary mt-4")),
-            cls="p-4"
-        )
+
     return Form(
         Div(
             Div(close_chat_button(sid, "nurse"), cls="flex gap-2"),

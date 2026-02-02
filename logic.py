@@ -218,9 +218,7 @@ def db_get_session(db: sqlite3.Connection, sid: str) -> ChatSession | None:
     """
     row = db.execute("SELECT * FROM sessions WHERE id = ?", (sid,)).fetchone()
     if not row:
-        print(f"[db_get_session] No session for sid={sid}")
         return None
-    print(f"[db_get_session] sid={row['id']} state={row['state']} intake_json={row['intake_json']}")
     return ChatSession.from_row(row) if row else None
 
 def db_get_user_sessions(db, user_email: str) -> list[ChatSession]:
@@ -232,7 +230,6 @@ def db_get_user_sessions(db, user_email: str) -> list[ChatSession]:
 
     # Map the rows to ChatSession object
     return [ChatSession.from_row(row) for row in rows]
-
 
 
 
@@ -267,9 +264,6 @@ def close_session(s: ChatSession, db: sqlite3.Connection):
     close_msg = Message(role="assistant", content="This session has been closed.", timestamp=datetime.now(), phase="system")
     db_save_message(db, s.id, close_msg)
     db.commit()
-    import traceback
-    print("Close session CALLED")
-    traceback.print_stack(limit=6)
 
 def get_session_helper(db: sqlite3.Connection, sid: str) -> ChatSession:
     """
@@ -280,7 +274,6 @@ def get_session_helper(db: sqlite3.Connection, sid: str) -> ChatSession:
         return None
     s.messages = db_get_messages(db, sid)
     
-    print(f"[get_session_helper] sid={sid} state={s.state} intake_index={s.intake.current_index} completed={s.intake.completed}")
     return s
 
 def db_get_messages(db: sqlite3.Connection, sid: str) -> list[Message]:
@@ -306,14 +299,7 @@ def get_urgent_count(db: sqlite3.Connection) -> int:
 
 # not used 
 
-def db_get_nurse_archive(db: sqlite3.Connection) -> list[ChatSession]:
-    """
-    Fetches all sessions that are ready for review or completed.
-    Sorted by the most recent activity first.
-    """
-    rows = db.execute("SELECT * FROM sessions WHERE state != 'intake' ORDER BY id DESC").fetchall()
 
-    return [ChatSession.from_row(row) for row in rows]
 
 def db_cleanup_stale_sessions(db: sqlite3.Connection):
     """

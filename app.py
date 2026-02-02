@@ -220,12 +220,10 @@ def beneficiary_view(request, sid: str):
     s = get_session_helper(db, sid)
     if not s: return layout(request, Card(H3("Session not found")), "Error")
 
-
-
-    content = Div(
-        emergency_header(s),
-        Div(beneficiary_chat_fragment(sid,s, role), cls="container mx-auto p-4"),cls="min-h-screen bg-base-100") 
-
+    # content = Div(
+    #     emergency_header(s),
+    #     Div(render_chat_view(s, role), cls="container mx-auto p-4"),cls="min-h-screen bg-base-100") 
+    content = Titled(f"Beneficiary Chat", render_chat_view(s, role))
     return layout(request, content, page_title = "Beneficiary Chat - MedAIChat")
 
 
@@ -233,49 +231,57 @@ def beneficiary_view(request, sid: str):
 @login_required
 async def beneficiary_send(request, sid: str):
     db = request.state.db
+    role = request.session.get("role")
     guard = require_role(request, "beneficiary")
     if guard: return guard
 
-
     s = get_session_helper(db, sid)
-    if not s: return layout(request, Card(H3("Session not found")), "Error")
+    if not s: return Response(status_code=404)
 
     form = await request.form()
     message = form.get("message", "").strip()
     if not message: return "" 
     
-    role = request.session.get("role")
+    
     user_msg  = Message(role=role, content=message, timestamp=datetime.now(), phase = "intake" if s.state == ChatState.INTAKE else "chat")
     
     db_save_message(db, sid, user_msg)
     db_update_session(db, sid, is_read=False)
+    
+    out = [chat_bubble(user_msg, role)] 
 
     if s.state == ChatState.INTAKE and s.intake and not s.intake.completed:
-        intake = s.intak
+        intake = s.intake
         
         red_flags = ["chest pain", "shortness of breath", "can't breathe", "severe bleeding", "unconscious", "stroke", "heart attack"]
         if any(flag in message.lower() for flag in red_flags):
             urgent_bypass(s, db)
             db.commit()
-            return ""
-
-        q_info = INTAKE_SCHEMA[intake.current_index]
-        intake.answers[q_info["id"]] = message
-        intake.current_index += 1
+            return Div(*out)
+        
+        if intake.current_index < len(INTAKE_SCHEMA):
+            q_info = INTAKE_SCHEMA[intake.current_index]
+            intake.answers[q_info["id"]] = message
+            intake.current_index += 1
+            db_update_session(db, sid, intake_json=json.dumps(asdict(intake)))
 
         if intake.current_index >= len(INTAKE_SCHEMA):
             intake.completed = True
+            db_update_session(db, sid, intake_json=json.dumps(asdict(intake)))
             await complete_intake(s, db)
+            db.commit()
+            return Div(*out)
 
         else:
             next_q = INTAKE_SCHEMA[intake.current_index]["q"]
             next_msg = Message(role="assistant", content=next_q, timestamp=datetime.now(), phase="intake")
             db_save_message(db, sid, next_msg)
-        db_update_session(db, sid, intake_json=json.dumps(asdict(intake)))
+            out.append(chat_bubble(next_msg, "assistant"))
+        
     
     db.commit()
     
-    return ""
+    return Div(*out)
 
 
 @rt("/beneficiary/{sid}/emergency")
@@ -286,21 +292,24 @@ def beneficiary_emergency(request, sid: str):
     if guard: return guard
 
     s = get_session_helper(db, sid)
-    if not s: return layout(request, Card(H3("Session not found")), "Error")
+    if not s: return Response(status_code=404)
     
     manual_emergency_escalation(s, db)
 
     sos_msg = Message(role="assistant", content="Emergency escalation has been activated.", timestamp=datetime.now(), phase="system")
     db_save_message(db, sid, sos_msg)
     db.commit()
-    return ""
+    s = get_session_helper(db, sid)
+    if request.headers.get("HX-Request") == "true":
+        return render_chat_view(s, "beneficiary")
+    return Redirect(f"/beneficiary/{sid}")
 
 @rt("/beneficiary/{sid}/close")
 @login_required
 async def beneficiary_close(request, sid: str):
     db = request.state.db
     s = get_session_helper(db, sid)
-    if not s: return layout(request, Card(H3("Session not found")), "Error")
+    if not s: return Response(status_code=404)
     guard = require_role(request, "beneficiary")
     if guard: return guard
 
@@ -308,7 +317,20 @@ async def beneficiary_close(request, sid: str):
     db_save_message(db, sid, Message(role="assistant", content="Session closed by beneficiary", timestamp=datetime.now(), phase="system"))
     db.commit()
 
-    return ""
+    if request.headers.get("HX-Request") == "true":
+        return render_chat_view(s, "beneficiary")
+
+    # For non-HX browser click — show end page
+    content = Div(
+        Card(
+            H3("Session Ended"),
+            P("Thank you for using MedAIChat. Your session has been saved."),
+            A("Return to Home", href="/", cls="btn btn-primary"),
+            cls="p-8 text-center"
+        ),
+        id="chat-container"
+    )
+    return layout(request, content, page_title="End Chat - MedAIChat")
     
 
 ###  Nurse Part 
@@ -341,7 +363,7 @@ def nurse_view(request, sid: str):
     # Mark as read
     db_update_session(db, sid, is_read=True)
 
-    content = Titled(f"Nurse Review - {s.user_email}",nurse_chat_fragment(sid, s, role))
+    content = Titled(f"Nurse Review - {s.user_email}", render_chat_view(s, role))
     return layout(request, content, page_title  = "Nurse Review - MedAIChat")
 
 
@@ -353,12 +375,11 @@ async def nurse_send(request, sid : str):
     if guard: return guard
 
     s = get_session_helper(db, sid)
-    if not s: return layout(request, Card(H3("Session not found")), "Error")
+    if not s: return Response(status_code=404)
 
     form = await request.form()
     message = form.get("message", "").strip()
     if not message: return ""
-    role = request.session.get("role")
     
     nurse_msg = Message(role="nurse", content=message, timestamp=datetime.now(), phase="chat")
     db_save_message(db, sid, nurse_msg)
@@ -375,14 +396,26 @@ async def nurse_close(request, sid: str):
     if guard: return guard
 
     s = get_session_helper(db, sid)
-    if not s: return layout(request, Card(H3("Session not found")), "Error")
+    if not s: return Response(status_code=404)
     
     close_session(s, db)
 
     db_save_message(db, sid, Message(role="assistant", content="Session closed by nurse.", timestamp=datetime.now(), phase="system"))
     db.commit()
 
-    return ""
+    if request.headers.get("HX-Request") == "true":
+        return render_chat_view(s, "nurse")
+
+    content = Div(
+        Card(
+            H3("Session Ended"),
+            P("Thank you. Your session has been saved."),
+            A("Return to Dashboard", href="/nurse", cls="btn btn-primary"),
+            cls="p-8 text-center"
+        ),
+        id="chat-container"
+    )
+    return layout(request, content, page_title="End Chat - MedAIChat")
 
 serve()
 
