@@ -149,7 +149,7 @@ async def poll_chat(request, sid: str):
     s = get_session_helper(db, sid)
     if not s: return layout(request, Card(H3("Session not found")), "Error")
 
-    return render_chat_view(s, role)
+    return Div(*[chat_bubble(m, role) for m in s.messages]) #render_chat_view(s, role)
 
 @rt("/nurse/poll")
 @login_required
@@ -300,9 +300,7 @@ def beneficiary_emergency(request, sid: str):
     db_save_message(db, sid, sos_msg)
     db.commit()
     s = get_session_helper(db, sid)
-    if request.headers.get("HX-Request") == "true":
-        return render_chat_view(s, "beneficiary")
-    return Redirect(f"/beneficiary/{sid}")
+    return emergency_header(s)
 
 @rt("/beneficiary/{sid}/close")
 @login_required
@@ -317,20 +315,9 @@ async def beneficiary_close(request, sid: str):
     db_save_message(db, sid, Message(role="assistant", content="Session closed by beneficiary", timestamp=datetime.now(), phase="system"))
     db.commit()
 
-    if request.headers.get("HX-Request") == "true":
-        return render_chat_view(s, "beneficiary")
+    s = get_session_helper(db, sid)
 
-    # For non-HX browser click — show end page
-    content = Div(
-        Card(
-            H3("Session Ended"),
-            P("Thank you for using MedAIChat. Your session has been saved."),
-            A("Return to Home", href="/", cls="btn btn-primary"),
-            cls="p-8 text-center"
-        ),
-        id="chat-container"
-    )
-    return layout(request, content, page_title="End Chat - MedAIChat")
+    return render_chat_view(s, "beneficiary")
     
 
 ###  Nurse Part 
@@ -386,7 +373,8 @@ async def nurse_send(request, sid : str):
     db_update_session(db, sid, is_read=False)
     db.commit()
 
-    return ""
+    return chat_bubble(nurse_msg, "nurse")
+
 
 @rt("/nurse/session/{sid}/close")
 @login_required
@@ -402,20 +390,9 @@ async def nurse_close(request, sid: str):
 
     db_save_message(db, sid, Message(role="assistant", content="Session closed by nurse.", timestamp=datetime.now(), phase="system"))
     db.commit()
+    s = get_session_helper(db, sid)
 
-    if request.headers.get("HX-Request") == "true":
-        return render_chat_view(s, "nurse")
-
-    content = Div(
-        Card(
-            H3("Session Ended"),
-            P("Thank you. Your session has been saved."),
-            A("Return to Dashboard", href="/nurse", cls="btn btn-primary"),
-            cls="p-8 text-center"
-        ),
-        id="chat-container"
-    )
-    return layout(request, content, page_title="End Chat - MedAIChat")
+    return render_chat_view(s, "beneficiary")
 
 serve()
 

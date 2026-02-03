@@ -259,10 +259,11 @@ def close_session(s: ChatSession, db: sqlite3.Connection):
     Marks a session as closed and saves the timestamp.
     """
     db.execute("UPDATE sessions SET state = ? WHERE id = ?", (ChatState.CLOSED.value, s.session_id))
-
+    
+    s.state = ChatState.CLOSED
     
     close_msg = Message(role="assistant", content="This session has been closed.", timestamp=datetime.now(), phase="system")
-    db_save_message(db, s.id, close_msg)
+    db_save_message(db, s.session_id, close_msg)
     db.commit()
 
 def get_session_helper(db: sqlite3.Connection, sid: str) -> ChatSession:

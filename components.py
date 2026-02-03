@@ -177,13 +177,6 @@ def render_chat_view(s: ChatSession, role:str):
         controls = Div() # placeholder
 
 
-    # if s.state == ChatState.CLOSED:
-    #     return Div(
-    #         emergency_header(s),
-    #         chat_window(s.messages, s.session_id, role),
-    #         Div("This session is closed.", cls="alert alert-info mt-4")
-    #     )
-
     return Div(
         header,
         Div(window, form, controls, cls="container mx-auto p-4"),
@@ -230,7 +223,7 @@ def emergency_header(s: ChatSession):
     status_content = Span("🆘 NURSE NOTIFIED - Responding Shortly", cls="font-bold animate-pulse") if is_urgent else \
                     Button("EMERGENCY: NEED A NURSE", 
                            hx_post=f"/beneficiary/{s.session_id}/emergency", 
-                           hx_target="#chat-messages",
+                           hx_target="#chat-header",
                            hx_confirm="Are you sure you need to escalate to emergency care?",
                            hx_on__htmx_config_request="this.setAttribute('disabled', 'disabled')",
                            cls="btn btn-error btn-sm lg:btn-md")
@@ -265,8 +258,8 @@ def beneficiary_form(sid: str, s: ChatSession) -> Any:
 
     if is_escalated:
         sos_btn = Span("✅ Notified", cls="btn btn-ghost no-animation text-success btn-square")
-    else:
-        sos_btn = Button("🆘", hx_post=f"/beneficiary/{sid}/emergency", hx_target="#chat-root", hx_swap="outerHTML", hx_confirm="Escalate to a nurse?",
+    else:                                                                           # "#chat-root",
+        sos_btn = Button("🆘", hx_post=f"/beneficiary/{sid}/emergency", hx_target="#chat-header", hx_swap="outerHTML", hx_confirm="Escalate to a nurse?",
                 hx_on__htmx_config_request="this.setAttribute('disabled', 'disabled')", type="button",  cls="btn btn-error btn-square", title="Emergency Escalation")
 
     return Form(
@@ -326,7 +319,12 @@ def nurse_form(sid: str, s: ChatSession) -> Any:
     Returns:
         Any: FastHTML Form component.
     """
-
+    if s.state == ChatState.CLOSED:
+        return Div(
+            Div(Span("🛑 This session is closed.", cls="alert alert-info w-full text-center")),
+            Div(A("Back to Dashboard", href="/nurse", cls="btn btn-primary mt-4")),
+            cls="p-4"
+        )
     return Form(
         Div(
             Div(close_chat_button(sid, "nurse"), cls="flex gap-2"),
@@ -336,8 +334,8 @@ def nurse_form(sid: str, s: ChatSession) -> Any:
             cls="flex flex-col gap-2 p-4 bg-base-200 border-t"
         ),
         hx_post=f"/nurse/{sid}/send",
-        hx_target="#chat-root",
-        hx_swap="outerHTML",
+        hx_target="#chat-messages", 
+        hx_swap="beforeend",
         hx_on="htmx:afterRequest: this.reset(); htmx:afterSwap: (function(){var el=document.getElementById('chat-window'); if(el) el.scrollTop = el.scrollHeight; })()",
         method="post"
     )
