@@ -153,7 +153,7 @@ def close_chat_button(sid: str, role: str) -> Any:
         type="button",
         cls = "btn btn-warning btn-square",
         hx_post=endpoint,
-        hx_target="#chat-root", #chat-messages
+        hx_target="#chat-root", 
         hx_swap="outerHTML",
         hx_confirm = "Are you sure you want to end this session?"
 
@@ -478,31 +478,3 @@ def nurse_dashboard_table(sessions):
         cls="table table-zebra w-full"
     )
     return tab
-
-def render_nurse_review(s: ChatSession, messages: list[Message]): # used in session details, not used so far 
-    """
-    Creates the full HTML page for the nurse to review a case.
-
-    Args:
-        s (ChatSession): The chat session data.
-        messages (list[Message]): The list of chat messages in the session.
-    """
-
-    return Titled(f"Review: {s.user_email}",
-                  Card(
-                      H3("Patient Intake Data"),
-                      Ul(*[Li(f"{k.replace("_", "").capitalize()}: {v}") for k, v in s.intake.answers.items()])
-                  ),
-                  Div(id="chat-history", cls="my-4")(
-                      *[chat_bubble(m, "nurse") for m in messages]
-                  ),
-                  # A place for the nurse to write their own summary/notes
-                  Form(hx_post=f"/nurse/session/{s.session_id}/finalize")(
-                      Textarea(name="nurse_summary", placeholder="Enter final clinical notes and summary...",
-                      cls="textarea textarea-bordered w-full"),
-                      Button("Finalize & Archive", cls="btn btn-primary mt-2")
-                  ))
-
-def nurse_sidebar_link(count: int): # Not used
-    badge = Span(count, cls="badge badge-error ml-2") if count > 0 else ""
-    return Li(A(href="/nurse")("Active Cases", badge))
