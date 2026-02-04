@@ -148,6 +148,7 @@ async def poll_chat(request, sid: str):
 
     s = get_session_helper(db, sid)
     if not s: return layout(request, Card(H3("Session not found")), "Error")
+    
     if role == "beneficiary":
         form = beneficiary_form(s.session_id, s)
     if role == "nurse":
@@ -398,7 +399,7 @@ async def nurse_close(request, sid: str):
     db.commit()
     s = get_session_helper(db, sid)
 
-    return render_chat_view(s, "beneficiary")
+    return render_chat_view(s, "nurse")
 
 serve()
 

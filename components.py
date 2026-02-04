@@ -326,7 +326,7 @@ def nurse_form(sid: str, s: ChatSession) -> Any:
         return Div(
             Div(Span("🛑 This session is closed.", cls="alert alert-info w-full text-center")),
             Div(A("Back to Dashboard", href="/nurse", cls="btn btn-primary mt-4")),
-            id="urse-input-form",
+            id="nurse-input-form",
             hx_swap_oob="true",
             cls="p-4"
         )
