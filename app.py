@@ -148,8 +148,14 @@ async def poll_chat(request, sid: str):
 
     s = get_session_helper(db, sid)
     if not s: return layout(request, Card(H3("Session not found")), "Error")
-
-    return Div(*[chat_bubble(m, role) for m in s.messages]) #render_chat_view(s, role)
+    if role == "beneficiary":
+        form = beneficiary_form(s.session_id, s)
+    if role == "nurse":
+        form = nurse_form(s.session_id, s)
+    return Div(
+        Div(*[chat_bubble(m, role) for m in s.messages]),
+         form
+    )
 
 @rt("/nurse/poll")
 @login_required

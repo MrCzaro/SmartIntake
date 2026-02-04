@@ -162,19 +162,20 @@ def close_chat_button(sid: str, role: str) -> Any:
 
 
 def render_chat_view(s: ChatSession, role:str):
-
-    # Header     
-    header = emergency_header(s)
-    
     window = chat_window(s.messages, s.session_id, role)
 
+    header = Div()
+    form = Div()
+    controls = Div()
     
     if role == "beneficiary":
+        header = emergency_header(s)
         form = beneficiary_form(s.session_id, s)
         controls = beneficiary_controls(s)
+    
     if role == "nurse":
         form = nurse_form(s.session_id, s)
-        controls = Div() # placeholder
+
 
 
     return Div(
@@ -217,7 +218,7 @@ def emergency_header(s: ChatSession):
         Div: A navbar component with a unique ID for HTMX Out-of-Band (OOB) updates.
     """
     if s.state == ChatState.CLOSED:
-        return ""
+        return Div(id="chat-header", hx_swap_oob="true") 
     is_urgent = s.state == ChatState.URGENT
 
     status_content = Span("🆘 NURSE NOTIFIED - Responding Shortly", cls="font-bold animate-pulse") if is_urgent else \
@@ -230,7 +231,7 @@ def emergency_header(s: ChatSession):
     header_cls = "navbar bg-error/20 border-b-4 border-error" if is_urgent else "navbar bg-base-100 border-b-2 border-base-300"
 
     return Div(H3("MedAIChat", cls="text-xl font-bold"), status_content,id = "chat-header",
-               cls=f"{header_cls} mb-4 flex justify-between px-4 sticky top-0 z-50")
+               hx_swap_oob="true", cls=f"{header_cls} mb-4 flex justify-between px-4 sticky top-0 z-50")
 
 
        
@@ -251,6 +252,8 @@ def beneficiary_form(sid: str, s: ChatSession) -> Any:
         return Div(
             Div(Span("🛑 This session is closed.", cls="alert alert-info w-full text-center")),
             Div(A("Back to Dashboard", href="/beneficiary", cls="btn btn-primary mt-4")),
+            id="beneficiary-input-form",
+            hx_swap_oob="true",
             cls="p-4"
         )
     
@@ -258,7 +261,7 @@ def beneficiary_form(sid: str, s: ChatSession) -> Any:
 
     if is_escalated:
         sos_btn = Span("✅ Notified", cls="btn btn-ghost no-animation text-success btn-square")
-    else:                                                                           # "#chat-root",
+    else:                                        
         sos_btn = Button("🆘", hx_post=f"/beneficiary/{sid}/emergency", hx_target="#chat-header", hx_swap="outerHTML", hx_confirm="Escalate to a nurse?",
                 hx_on__htmx_config_request="this.setAttribute('disabled', 'disabled')", type="button",  cls="btn btn-error btn-square", title="Emergency Escalation")
 
@@ -323,6 +326,8 @@ def nurse_form(sid: str, s: ChatSession) -> Any:
         return Div(
             Div(Span("🛑 This session is closed.", cls="alert alert-info w-full text-center")),
             Div(A("Back to Dashboard", href="/nurse", cls="btn btn-primary mt-4")),
+            id="urse-input-form",
+            hx_swap_oob="true",
             cls="p-4"
         )
     return Form(
@@ -333,6 +338,7 @@ def nurse_form(sid: str, s: ChatSession) -> Any:
             Button("Send", cls="btn btn-primary mt-2", type="submit", hx_disable_elt="this"),
             cls="flex flex-col gap-2 p-4 bg-base-200 border-t"
         ),
+        id="nurse-input-form",
         hx_post=f"/nurse/{sid}/send",
         hx_target="#chat-messages", 
         hx_swap="beforeend",
