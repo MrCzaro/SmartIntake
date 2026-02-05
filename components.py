@@ -147,13 +147,20 @@ def close_chat_button(sid: str, role: str) -> Any:
     """
     A consistent 'End Chat' button for both roles.
     """
-    endpoint = f"/{role}/{sid}/close" if role == "beneficiary" else f"/nurse/session/{sid}/close"
+    endpoint = ""
+    target = ""
+    if role == "beneficiary":
+        endpoint = f"/{role}/{sid}/close"
+        target = "#beneficiary-input-form"
+    if role == "nurse":
+        endpoint = f"/nurse/session/{sid}/close"
+        target = "#nurse-input-form"
     return Button(
         "✖",
         type="button",
         cls = "btn btn-warning btn-square",
         hx_post=endpoint,
-        hx_target="#chat-root", 
+        hx_target=target, #"#chat-root", 
         hx_swap="outerHTML",
         hx_confirm = "Are you sure you want to end this session?"
 
