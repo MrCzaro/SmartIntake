@@ -257,11 +257,14 @@ def beneficiary_form(sid: str, s: ChatSession) -> Any:
     """
     if s.state == ChatState.CLOSED:
         return Div(
-            Div(Span("🛑 This session is closed.", cls="alert alert-info w-full text-center")),
-            Div(A("Back to Dashboard", href="/beneficiary", cls="btn btn-primary mt-4")),
-            id="beneficiary-input-form",
-            hx_swap_oob="true",
-            cls="p-4"
+            Div(
+                Span("🛑 This session is closed.", cls="alert alert-info w-full text-center"),
+                Div(A("Back to Dashboard", href="/beneficiary", cls="btn btn-primary mt-4")),
+                id="beneficiary-input-form",
+                hx_swap_oob="true",
+                cls="p-4"
+        ),
+        Div("", id="beneficiary-controls", hx_swap_oob="true")
         )
     
     is_escalated = s.state in (ChatState.URGENT, ChatState.NURSE_ACTIVE)
@@ -305,6 +308,8 @@ def beneficiary_controls(s: ChatSession) -> Any:
         Any: A FastHTML component representing the appropriate UI message.
     """
     content = ""
+    if s.state == ChatState.CLOSED:
+        return Div("", id="beneficiary-controls")
     if s.state == ChatState.INTAKE:
         content =  Div("Please answer all intake questions to continue.", cls="alert alert-warning mt-4")
     
