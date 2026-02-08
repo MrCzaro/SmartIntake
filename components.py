@@ -3,9 +3,6 @@ from monsterui.all import *
 from typing import Any
 from models import *
 
-
-
-
 hdrs = Theme.blue.headers()
 hdrs.append(Script(src="https://unpkg.com/htmx.org@1.9.12"))
 hdrs.append(Script("""
@@ -160,17 +157,14 @@ def close_chat_button(sid: str, role: str) -> Any:
         type="button",
         cls = "btn btn-warning btn-square",
         hx_post=endpoint,
-        hx_target=target, #"#chat-root", 
+        hx_target=target, 
         hx_swap="outerHTML",
         hx_confirm = "Are you sure you want to end this session?"
-
     )
-
 
 
 def render_chat_view(s: ChatSession, role:str):
     window = chat_window(s.messages, s.session_id, role)
-
     header = Div()
     form = Div()
     controls = Div()
@@ -183,8 +177,6 @@ def render_chat_view(s: ChatSession, role:str):
     if role == "nurse":
         form = nurse_form(s.session_id, s)
 
-
-
     return Div(
         header,
         Div(window, form, controls, cls="container mx-auto p-4"),
@@ -192,8 +184,6 @@ def render_chat_view(s: ChatSession, role:str):
         cls="min-h-screen bg-base-100"
         )
 
-
-    
 def summary_message_fragment(content : str):
     """
     Renders a specialized UI card for displaying an AI-generated intake summary.
@@ -429,64 +419,3 @@ def session_row(s: ChatSession):
             )
         )
 
-
-
-
-
-# Not used recently 
-
-def past_sessions_table(session_list: list[ChatSession]): # used in nurse archive so far not used
-    """
-    Renders a scannable table of previous medical consultations.
-    """
-    header = Thead(Tr(Th("Date"), Th("Issue"), Th("Status"), Th("Action")))
-
-    rows = []
-    for s in session_list:
-        # We grab the first intake answer as the 'Issue' summary
-        issue = s.intake.answers.get("chief_complaint", "General Inquiry")[:30] + "..."
-
-        rows.append(Tr(
-            Td(s.messages[0].timestamp.strftime("%Y-%m-%d %H:%M") if s.messages else "N/A"),
-            Td(issue),
-            Td(Span(s.state.value.upper(), cls="badge badge-ghost")),
-            Td(A("View", href=f"/beneficiary/archieve/{s.session_id}", cls="btn btn-sm btn-primary"))
-        ))
-    
-    return Table(header, Tbody(*rows), cls="table w-full")
-
-def nurse_case_row(s:ChatSession): 
-    """
-    Renders a single row in the nurse dashboard table.
-    """
-    # Formating the timestamp
-    time_str = s.timestamp.strftime("%H:%M") if isinstance(s.timestamp, datetime) else str(s.timestamp)
-
-    # Dynamic badges for status
-    status_cls = "badge-warning" if s.state == ChatState.URGENT else "badge-info"
-
-    case_row = Tr(
-        Td(time_str, cls="font-mono text-xs"),
-        Td(s.session_id[:8] + "...", cls="font-mono text-xs opacity-50"),
-        Td(Span(s.state.name, cls=f"badge {status_cls} badge-sm")),
-        Td(
-            A("Open Chat", href="/nurse/chat/{s.session_id}", cls="btn btn-xs btn-ghost"),
-            close_chat_button(s.session_id, "nurse")
-        ),
-        id=f"session-row-{s.session_id}"
-    )
-    return case_row
-
-def nurse_dashboard_table(sessions):
-    """
-    The container table.
-    """
-    if not sessions:
-        return Div("No activbe cases found.", cls="p-10 text-center opacity-50 italic")
-    
-    tab = Table(
-        Thead(Tr(Th("Time"), Th("ID"), Th("Status"), Th("Actions"))),
-        Tbody(*[nurse_case_row(s) for s in sessions]),
-        cls="table table-zebra w-full"
-    )
-    return tab
