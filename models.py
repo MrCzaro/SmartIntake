@@ -12,6 +12,7 @@ INTAKE_SCHEMA = [
     {"id": "relieving_factors", "q": "What makes it better?"},
     {"id": "aggravating_factors", "q": "What makes it worse?"},
     {"id": "fever", "q": "Have you had a fever?"},
+    {"id": "allergy", "q" : "Are you allergic to anything?" },
     {"id": "medications", "q": "What medications are you currently taking?"},
     {"id": "conditions", "q": "Any chronic conditions?"},
     {"id": "prior_contact", "q": "Have you contacted us about this before?"}
@@ -31,7 +32,7 @@ class Message:
     role : str # beneficiary | nurse | assistant
     content : str
     timestamp :  datetime 
-    phase : str # intake | system
+    phase : str # intake | system | chat | summary | completion
 
     @property
     def display_time(self) -> str:
@@ -77,8 +78,9 @@ class ChatState(str, Enum):
         - WAITING_FOR_NURSE: Intake is done. Session is in the nurse's queue.
         - NURSE_ACTIVE: A human nurse is currently chatting with the beneficiary.
         - URGENT: High-priority state triggered by red flags or manual SOS.
-        - CLOSED: The interaction has been finished/closed.
-        - COMPLETED: The session has been finalized and archived.
+        - INACTIVE: Session has been idle for 20+ minutes but within grace period (can seamlessly resume).
+        - CLOSED: The interaction has been finished/closed (either by timeout or user action).
+        - COMPLETED: The session has been formally closed by a nurse with documentation.
     """
     INTAKE = "intake"
     WAITING_FOR_NURSE = "waiting_for_nurse"
@@ -101,6 +103,7 @@ class ChatSession:
     user_email : str
     state : ChatState = ChatState.INTAKE 
     created_at: datetime = field(default_factory=datetime.now)
+    last_activity: datetime = field(default_factory=datetime.now)
     messages: list[Message] = field(default_factory=list)
     intake : IntakeState = field(default_factory=IntakeState)
     summary: str | None = None
@@ -110,6 +113,14 @@ class ChatSession:
     def id(self):
         return self.session_id
 
+    @property
+    def minutes_since_activity(self) -> int:
+        """Calculate how many minutes have passed since last activity"""
+        if not self.last_activity:
+            return 0
+        delta = datetime.now() - self.last_activity
+        return int(delta.total_seconds() / 60)
+    
     @staticmethod
     def _coerce_state(raw) -> ChatState:
         """
@@ -145,15 +156,23 @@ class ChatSession:
         raw_date = row["created_at"]
         try:
             ca = datetime.fromisoformat(raw_date.replace(" ", "T")) if raw_date else datetime.now()
+
         except:
             ca = datetime.now()
 
+        raw_activity = row["last_activity"]
+        try:
+            la = datetime.fromisoformat(raw_activity.replace(" ", "T")) if raw_activity else datetime.now()
+        except:
+            la = datetime.now()
+        
         state = cls._coerce_state(row["state"])
         return cls(
             session_id=row["id"],
             user_email=row["user_email"],
             state=state,
             created_at=ca,
+            last_activity=la,
             summary=row["summary"],
             intake=intake_state,
             is_read=bool(row["is_read"]),

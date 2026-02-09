@@ -88,7 +88,7 @@ def manual_emergency_escalation(s: ChatSession, db: sqlite3.Connection):
     """
     s.state = ChatState.URGENT
     db_update_session(db, s.session_id, state=s.state)
-    system_message(s.session_id, db, "🚨 Emergency button pressed. A nurse has been notified immediately.")
+    system_message(s.session_id, db, "Emergency button pressed. A nurse has been notified immediately.")
 
 def nurse_joins(s: ChatSession, db: sqlite3.Connection):
     """
@@ -156,8 +156,6 @@ async def generate_intake_summary(s: ChatSession):
         s.summary = "System Note: Automated summary could not be generated. Please review patient responses manually."
 
 
-
-
 def db_create_session(db: sqlite3.Connection, session: ChatSession, first_message: Message):
     """
     Atomically creates a new session and its initial message.
@@ -169,8 +167,9 @@ def db_create_session(db: sqlite3.Connection, session: ChatSession, first_messag
     try:
         with db: # Start transaction
             intake_json = json.dumps(asdict(session.intake))
-            db.execute("INSERT INTO sessions (id, user_email, state, intake_json, is_read) VALUES (?, ?, ?, ?, ?)",
-                       (session.session_id, session.user_email, session.state.value, intake_json, 0))
+            now = datetime.now().isoformat()
+            db.execute("INSERT INTO sessions (id, user_email, state, intake_json, is_read, last_activity) VALUES (?, ?, ?, ?, ?, ?)",
+                       (session.session_id, session.user_email, session.state.value, intake_json, 0, now))
             
             # Save the First Message
             db.execute("INSERT INTO messages (session_id, role, content, timestamp, phase) VALUES (?, ?, ?, ?, ?)",
@@ -183,15 +182,22 @@ def db_create_session(db: sqlite3.Connection, session: ChatSession, first_messag
     
 def db_save_message(db: sqlite3.Connection, session_id: str, message: Message):
     """
-    Saves a chat message to the database.
+    Saves a chat message to the database and updates the session's last_activity timestamp.
+
     
     Args:
         db (sqlite3.Connection): Open database connection.
         session_id (str): The ID of the session the message belongs to.
         message (Message): The message to store.
     """
+    now = datetime.now().isoformat()
+
+    # Save the message
     db.execute("INSERT INTO messages (session_id, role, content, timestamp, phase) VALUES (?, ?, ?, ?, ?)",
                (session_id, message.role, message.content, message.timestamp.isoformat(), message.phase))
+    
+    # Update last_activity timestamp
+    db.execute("UPDATE sessions SET last_activity = ? WHERE id = ?", (now, session_id))
     
 def db_update_session(db: sqlite3.Connection, session_id: str, **kwargs):
     """
@@ -266,6 +272,38 @@ def close_session(s: ChatSession, db: sqlite3.Connection):
     db_save_message(db, s.session_id, close_msg)
     db.commit()
 
+def complete_session(session_id: str, nurse_email: str, completion_note: str, db: sqlite3.Connection):
+    """
+    Formally closes a session with nurse documentation.
+    
+    This is used primarily for urgent cases where a nurse has attempted follow-up
+    and is formally closing the case with notes.
+    
+    Args:
+        session_id (str): The session to complete
+        nurse_email (str): Email of the nurse completing the case
+        completion_note (str): Required documentation of how case was resolved
+        db (sqlite3.Connection): Open database connection
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    # Validate minimum note length (20 characters)
+    if len(completion_note.strip()) < 20:
+        return False
+    
+    # Update session state to COMPLETED
+    db.execute("UPDATE sessions SET state = ? WHERE id = ?", (ChatState.COMPLETED.value, session_id))
+    completion_msg = Message(
+        role="assistant",
+        content=f"**Case Completed by Nurse {nurse_email}**\n\n{completion_note}",
+        timestamp=datetime.now(),
+        phase="completion"
+    )    
+    db_save_message(db, session_id, completion_msg)
+    db.commit()
+    return True
+
 def get_session_helper(db: sqlite3.Connection, sid: str) -> ChatSession:
     """
     Helper function to retrieve a session and its all messages in one go..
@@ -298,22 +336,120 @@ def get_urgent_count(db: sqlite3.Connection) -> int:
 
 
 
-# not used 
-
-
-
 def db_cleanup_stale_sessions(db: sqlite3.Connection):
     """
-    Automatically closes sessions that have been inactive for > 20 minutes.
+    Automatically manages session timeouts using a two-tier system:
+
+    Tier 1 - Soft Timeout (20 minutes):
+        - moves sessions to INACTIVE state
+        - they can still semlessly resume if beneficiary returns
+        - removes from active nurse queue to reduce clutter
+
+    Tier 2 - Hard Timeout (80 minutes total = 20 + 60 grace period):
+        - permanently closes INACTIVE sessions
+        - beneficiary must make explicit choice to continue or start fresh
+
+    IMPORTANT: URGENT sessions are never auto-timed out. They remain open
+    until explicitly closed by a nurse with proper documentation.
     """
-    # Calculate the cutoff time (20 minutes ago)
-    # timeout_limit = (datetime.now() - timedelta(minutes=20)).isoformat()
+    now = datetime.now()
 
-    # Update sessions that are in INTAKE and have not been updated recently.
-    ####
-    print(f"[db_cleanup_stale_session] disabled")
-    return
-    # db.execute("UPDATE sessions SET state = ? WHERE state = ? AND created_at < ?", (ChatState.CLOSED.value, ChatState.INTAKE.value, timeout_limit))
-    # db.commit()
+    # Tier 1: Soft timeout
+    soft_timeout = now - timedelta(minutes=20)
+
+    # Find sessions that should move to INACTIVE
+    active_states = [ChatState.INTAKE.value, ChatState.WAITING_FOR_NURSE.value, ChatState.NURSE_ACTIVE.value]
+    placeholders = ",".join(["?"] * len(active_states))
+
+    query = f"SELECT id, state FROM sessions WHERE state IN ({placeholders}) AND last_activity < ? AND state !=?"
+    params = active_states + [soft_timeout.isoformat(), ChatState.URGENT.value]
+    
+    stale_sessions = db.execute(query, params).fetchall()
+
+    for session in stale_sessions:
+        sid = session["id"]
+        original_state = session["state"]
+
+        # Move to INACTIVE
+        db.execute("UPDATE sessions SET state = ? WHERE id = ?", (ChatState.INACTIVE.value, sid))
+
+        # Add system message documenting the timeout
+        timeout_msg = Message(
+            role="assistant", 
+            content="⏸️ This session became inactive at {now.strftime('%I:%M %p')} due to inactivity. You have 1 hour to resume before it closes permanently.",
+            timestamp=now, 
+            phase="system"
+        )
+        db_save_message(db, sid, timeout_msg)
+        print(f"[CLEANUP] Session {sid} movet to INACTIVE (was {original_state})")
+        
+    # Tier 2: Hard timeout - permanently close INACTIVE sessions after grace period
+    hard_timeout = now - timedelta(minutes=80)
+
+    query = "SELECT id FROM sessions WHERE state = ? AND last_activity < ?"
+    
+    expired_sessions = db.execute(query, (ChatState.INACTIVE.value, hard_timeout.isoformat())).fetchall()
+
+    for session in expired_sessions:
+        sid = session["id"]
+
+        # Permanently close
+        db.execute("UPDATE sessions SET state = ? WHERE id=?", (ChatState.CLOSED.value, sid))
+
+        # Add system message documenting the permanent closure
+        closure_msg = Message(
+            role="assistant",
+            content=f"🔒 This session was permanently closed at {now.strftime('%I:%M %p')} due to extended inactivity. You can view the history or start a new consultation.",
+            timestamp=now,
+            phase="system"
+        )
+        db_save_message(db,sid, closure_msg)
+        print(f"[CLEANUP] Session {sid} permanently CLOSED after grace period")
+
+    db.commit()
 
 
+def reactivate_session(session_id: str, db: sqlite3.Connection) -> tuple[bool, str]:
+    """
+    Attempts to reactive an INACTIVE session when a patient sends a message.
+    
+    Returns:
+        tuple[bool, str]: (success, message)
+            - if within grace period: (True, "resumed")
+            - if past grace period: (False, "expired")
+            - if not inactive: (False, "not_inactive")
+    """
+    s = db_get_session(db, session_id)
+    if not s: return (False, "not_found")
+
+    # Only INACTIVE session can be reactivated
+    if s.state != ChatState.INACTIVE:
+        return (False, "not_found")
+    
+    # Check if still within grace period
+    grace_period_end = s.last_activity + timedelta(minutes=80)
+    now = datetime.now()
+
+    if now > grace_period_end:
+        # Past grace period - cannot auto-reactivate
+        return (False, "expired")
+    
+    if s.intake and s.intake.completed:
+        new_state = ChatState.WAITING_FOR_NURSE
+        db_update_session(db, session_id, state=new_state, is_read=False)
+    else:
+        new_state = ChatState.INTAKE
+        db_update_session(db, session_id, state=new_state)
+
+    # Add system message about reactivation
+    reactivation_msg = Message(
+        role="assistant",
+        content=f"✅ Session resumed at {now.strftime('%I:%M %p')}. You may continue where you left off.",
+        timestamp=now,
+        phase="system"
+    )
+    db_save_message(db, session_id, reactivation_msg)
+    db.commit()
+
+    return (True, "resumed")
+    

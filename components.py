@@ -164,11 +164,32 @@ def close_chat_button(sid: str, role: str) -> Any:
 
 
 def render_chat_view(s: ChatSession, role:str):
+    """
+    Main chat view renderer that handles all session states.
+    Includes resume notices, inactive banners, and completion modals.
+    
+    Args:
+        s: ChatSession object
+        role: User role ("beneficiary" or "nurse")
+        
+    Returns:
+        Complete chat interface
+    """
     window = chat_window(s.messages, s.session_id, role)
     header = Div()
     form = Div()
     controls = Div()
+    notices = []
     
+    # Show resume notice if session was just reactivated
+    if s.messages and s.messages[-1].phase == "system" and "resumed" in s.messages[-1].content.lower():
+        notices.append(session_resume_notice(s.session_id))
+
+    # Show inactive banner if currently inactive
+    if s.state == ChatState.INACTIVE:
+        notices.append(inactive_session_banner(s))
+
+
     if role == "beneficiary":
         header = emergency_header(s)
         form = beneficiary_form(s.session_id, s)
@@ -176,10 +197,12 @@ def render_chat_view(s: ChatSession, role:str):
     
     if role == "nurse":
         form = nurse_form(s.session_id, s)
+        if s.state == ChatState.URGENT:
+            notices.append(completion_modal(s.session_id))
 
     return Div(
         header,
-        Div(window, form, controls, cls="container mx-auto p-4"),
+        Div(*notices, window, form, controls, cls="container mx-auto p-4"),
         id="chat-root", 
         cls="min-h-screen bg-base-100"
         )
@@ -241,6 +264,7 @@ def beneficiary_form(sid: str, s: ChatSession) -> Any:
     
     Args:
         sid (str): Chat session ID.
+        s (ChatSession) : Current session object
     
     Returns:
         Any: FastHTML Form component.
@@ -257,8 +281,18 @@ def beneficiary_form(sid: str, s: ChatSession) -> Any:
         Div("", id="beneficiary-controls", hx_swap_oob="true")
         )
     
+    if s.state == ChatState.COMPLETED:
+        return Div(
+            Div(Span("✅ This case has been completed by a nurse.", cls="alert alert-success w-full text-center")),
+            Div(
+                A("View Full History", href=f"/beneficiary/{sid}/history", cls="btn btn-ghost mt-4"),
+                A("Start New Consultation", href="/start", cls="btn btn-primary mt-4 ml-2")
+            ),
+            cls="p-4"
+        )
+    
     is_escalated = s.state in (ChatState.URGENT, ChatState.NURSE_ACTIVE)
-
+    is_inactive = s.state == ChatState.INACTIVE
     if is_escalated:
         sos_btn = Span("✅ Notified", cls="btn btn-ghost no-animation text-success btn-square")
     else:                                        
@@ -269,7 +303,7 @@ def beneficiary_form(sid: str, s: ChatSession) -> Any:
         Div(
             sos_btn, 
             close_chat_button(sid, "beneficiary"),
-            Input(name="message", id="chat-input", placeholder="Type your message...", cls="input input-bordered w-full"),
+            Input(name="message", id="chat-input", placeholder="Type your message to resume..." if is_inactive else "Type your message...", cls="input input-bordered w-full" + (" border-warning" if is_inactive else "")),
             Button("Send", cls="btn btn-primary mt-2", type="submit", hx_disable_elt="this"),
             cls="flex gap-2 p-4 bg-base-200 border-t items-center"
         ), 
@@ -320,6 +354,7 @@ def nurse_form(sid: str, s: ChatSession) -> Any:
     
     Args:
         sid (str): Chat session ID.
+        s (ChatSession): Current session object
         
     Returns:
         Any: FastHTML Form component.
@@ -332,9 +367,20 @@ def nurse_form(sid: str, s: ChatSession) -> Any:
             hx_swap_oob="true",
             cls="p-4"
         )
+    
+    # Check if this is an urgent case
+    is_urgent = s.state == ChatState.URGENT
+
+    # Top controls - close button and complete button if urgent
+    controls = Div(
+        close_chat_button(sid, "nurse"),
+        (nurse_complete_button(sid, is_urgent) if is_urgent else ""),
+        cls="flex gap-2"
+    )
+
     return Form(
         Div(
-            Div(close_chat_button(sid, "nurse"), cls="flex gap-2"),
+            controls,
             Input(type="hidden", name="sid", value=sid),
             Input(name="message", id="chat-input", placeholder="Reply to beneficiary...", cls="input input-bordered w-full"),
             Button("Send", cls="btn btn-primary mt-2", type="submit", hx_disable_elt="this"),
@@ -419,3 +465,237 @@ def session_row(s: ChatSession):
             )
         )
 
+def session_resume_notice(session_id: str) -> Any:
+    """
+    Dismissible alert shown when a session has been reactivated from INACTIVE state.
+    This appears at the top of the chat to inform the user their session resumed.
+
+    Args:
+        session_id: The session that was reactivated
+
+    Returns:
+        A dimissible alert component
+    """ 
+    return Div(
+        Div(
+            DivLAligned(
+                Span("ℹ️", cls="text-2xl"),
+                Div(
+                    Strong("Session Resumed"),
+                    P("Your session was inactive but has been resumed. You can continue where you left off.",
+                      cls=TextPresets.muted_sm),
+                    cls="ml-3"
+                )
+            ),
+            Button(
+                "X", 
+                cls="btn btn-sm btn-circle btn-ghost",
+                onclick="this.parentElement.parentElement.remove()"
+            ),
+            cls="alert alert-info flex justify-between items-start"
+        ),
+        id=f"resume-notice-{session_id}",
+        cls="mb-4"
+    )
+
+def completion_modal(session_id: str) -> Any:
+    """
+    Modal for nurses to complete/close a case with required documentation.
+    Enforces minimum 20-character comment requirement.
+    
+    Args:
+        session_id: The session being completed
+        
+    Returns:
+        Modal component with form for case completion
+    """
+    return Div(
+        # Modal backdrop
+        Input(type="checkbox", id=f"completion-modal-{session_id}", cls="modal-toggle"),
+        
+        # Modal content
+        Div(
+            Div(
+                # Modal header
+                H3("Complete Case", cls="font-bold text-lg"),
+                P("Document the resolution of this case. This action will close the case and remove it from your active queue.",
+                  cls=TextPresets.muted_sm + " py-2"),
+                
+                # Alert about urgent cases
+                Div(
+                    DivLAligned(
+                        Span("⚠️"),
+                        P("This is an urgent case. Please confirm you have attempted appropriate follow-up contact before closing.",
+                          cls="ml-2")
+                    ),
+                    cls="alert alert-warning mb-4"
+                ),
+                
+                # Completion form
+                Form(
+                    Div(
+                        Label(
+                            Span("Completion Notes", cls="label-text font-semibold"),
+                            Span("(minimum 20 characters)", cls="label-text-alt text-gray-500"),
+                            cls="label"
+                        ),
+                        Textarea(
+                            id=f"completion-note-{session_id}",
+                            name="completion_note",
+                            placeholder="Example: Patient contacted by phone, confirmed symptoms resolved.\n\nOR\n\nUnable to reach patient after 2 call attempts. Left voicemail requesting callback. Case closed pending patient re-contact.",
+                            cls="textarea textarea-bordered h-32 w-full",
+                            required=True,
+                            minlength="20",
+                            oninput=f"document.getElementById('submit-completion-{session_id}').disabled = this.value.trim().length < 20"
+                        ),
+                        P(
+                            "Character count: ",
+                            Span("0", id=f"char-count-{session_id}"),
+                            " / 20 minimum",
+                            cls="text-sm text-gray-500 mt-1"
+                        ),
+                        cls="form-control w-full"
+                    ),
+                    
+                    # Action buttons
+                    Div(
+                        Label(
+                            "Cancel",
+                            fr=f"completion-modal-{session_id}",
+                            cls="btn btn-ghost"
+                        ),
+                        Button(
+                            "Complete Case",
+                            id=f"submit-completion-{session_id}",
+                            type="submit",
+                            cls="btn btn-primary",
+                            disabled=True  # Disabled until 20 chars entered
+                        ),
+                        cls="modal-action"
+                    ),
+                    
+                    method="post",
+                    action=f"/nurse/session/{session_id}/complete",
+                    hx_post=f"/nurse/session/{session_id}/complete",
+                    hx_target="#chat-root",
+                    hx_swap="outerHTML"
+                ),
+                
+                # Character counter script
+                Script(f"""
+                    const textarea = document.getElementById('completion-note-{session_id}');
+                    const counter = document.getElementById('char-count-{session_id}');
+                    textarea.addEventListener('input', function() {{
+                        counter.textContent = this.value.trim().length;
+                    }});
+                """),
+                
+                cls="modal-box max-w-2xl"
+            ),
+            cls="modal"
+        ),
+        id=f"completion-modal-container-{session_id}"
+    )
+
+def inactive_session_banner(session: ChatSession) -> Any:
+    """
+    Banner shown when viewing an INACTIVE session (within grace period).
+    Informs user they can still send messages to resume.
+    
+    Args: 
+        session: The inactive session
+
+    Returns:
+        Alert banner component
+    """
+    minutes_left = 80 - session.minutes_since_activity
+
+    return Div(
+        DivLAligned(
+            Span("⏸️", cls="text-2xl"),
+            Div(
+                Strong("Session Inactive"),
+                P(f"This session has been inactive. You have approximately {minutes_left} minutes to send a message and resume. After that, the session will be permanently closed.",
+                  cls=TextPresets.muted_sm),
+                  cls="ml-3"
+            )
+        ),
+        cls="alert alert-warning mb-4"
+    )
+
+def completed_session_view(session: ChatSession, messages: List[Message]) -> Any:
+    """
+    View for a COMPLETED session - shows history with completion note and option to start new session.
+    
+    Args: 
+        session: The completed session
+        messages: All messages in the session
+        
+    Returns:
+        Complete view component for completed session
+    """
+    # Find the completion message
+    completion_msg = next((m for m in messages if m.phase == "completion"), None)
+
+    return Div(
+        # Header indicating completed status
+        Div(
+            H3("Completed Consultation", cls="text-xl font-bold"),
+            Span("This case has been completed by a nurse and is now closed.", cls="badge badge-success"),
+            cls="flex justify-between items-center mb-4 p-4 bg-base-200 rounded-lg"
+        ),
+        # Completion note (if exists)
+        (Card(
+            H4("Case Completion Notes", cls=TextPresets.bold_sm),
+            Div(completion_msg.content, cls="prose mt-2"),
+            P(f"Completed at {completion_msg.display_time}", cls=TextPresets.muted_sm + " mt-2"),
+            cls="mb-4 bg-green-50"
+        ) if completion_msg else ""),
+
+        # Chat history
+        Div(
+            H4("Conversation History", cls="mb-2"),
+            Div(
+                *[chat_bubble(m, "beneficiary") for m in messages if m.phase != "completion"],
+                cls="space-y-2 max-h-96 overflow-y-auto p-4 bg-base-100 rounded-lg"
+            ),
+            cls="mb-4"
+        ),
+        # Action button
+        Div(
+            A(
+                "Back to Dashboard",
+                href="/beneficiary",
+                cls="btn btn-ghost"
+            ),
+            A(
+                "Start New Consultation",
+                href="/start",
+                cls="btn btn-primary"
+            ),
+            cls="flex justify-between"
+        ),
+        id="completed-session-view"
+    )
+
+def nurse_complete_button(session_id: str, is_urgent: bool) -> Any:
+    """
+    Button for nurses to initiate case completion.
+    Opens the completion modal.
+    
+    Args:
+        session_id: The session to complete
+        is_urgent: Whether this in an urgent case
+        
+    Returns:
+        Label button that triggers completion modal
+    """
+    button_text = "Complete Urgent Case" if is_urgent else "Complete Case"
+    button_class = "btn btn-warning btn-sm" if is_urgent else "btn btn-success btn-sm"
+
+    return Label(
+        button_text,
+        fr=f"completion-modal-{session_id}",
+        cls=button_class,
+        title="Formally close this case with documentation"
+    )
