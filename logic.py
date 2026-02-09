@@ -238,6 +238,8 @@ def get_nurse_dashboard_data(db: sqlite3.Connection):
     Returns sessions ready for nurse review and counts urgent cases..
     Excludes INTAKE (active) and CLOSED sessions.
     """
+    # Run the cleanup first 
+    db_cleanup_stale_sessions(db)
 
     # Get Urgent count 
     urgent_count = get_urgent_count(db)
@@ -293,5 +295,25 @@ def get_urgent_count(db: sqlite3.Connection) -> int:
     # Only count sessions in URGENT state
     result = db.execute("SELECT COUNT(*) FROM sessions WHERE state = ?",(ChatState.URGENT.value,)).fetchone()
     return result[0] if result else 0
+
+
+
+# not used 
+
+
+
+def db_cleanup_stale_sessions(db: sqlite3.Connection):
+    """
+    Automatically closes sessions that have been inactive for > 20 minutes.
+    """
+    # Calculate the cutoff time (20 minutes ago)
+    # timeout_limit = (datetime.now() - timedelta(minutes=20)).isoformat()
+
+    # Update sessions that are in INTAKE and have not been updated recently.
+    ####
+    print(f"[db_cleanup_stale_session] disabled")
+    return
+    # db.execute("UPDATE sessions SET state = ? WHERE state = ? AND created_at < ?", (ChatState.CLOSED.value, ChatState.INTAKE.value, timeout_limit))
+    # db.commit()
 
 

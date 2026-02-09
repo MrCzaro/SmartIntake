@@ -66,7 +66,8 @@ def init_db() -> None:
             summary TEXT,
             is_read BOOLEAN DEFAULT 0,
             intake_json TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP)
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            last_activity DATETIME DEFAULT CURRENT_TIMESTAMP)
         """
     )
 

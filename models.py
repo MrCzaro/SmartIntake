@@ -84,6 +84,7 @@ class ChatState(str, Enum):
     WAITING_FOR_NURSE = "waiting_for_nurse"
     NURSE_ACTIVE = "nurse_active"
     URGENT = "urgent"
+    INACTIVE = "inactive"
     CLOSED = "closed"
     COMPLETED = "completed"
 
