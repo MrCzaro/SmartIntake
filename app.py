@@ -251,7 +251,19 @@ async def beneficiary_send(request, sid: str):
     message = form.get("message", "").strip()
     if not message: return "" 
     
-    
+    if s.state == ChatState.INACTIVE:
+        success, status = reactivate_session(sid, db)
+        if not success:
+            if status == "expired":
+                # Past grace period
+                return Div(
+                    Div("⚠️ This session has expired. Please start a new consultation.", cls="alert alert-warning"),
+                A("Start New Consultation", href="/start", cls="btn btn-primary mt-2")
+                )
+            else:
+                return Div(Div("Unable to resume session.", cls="alert alert-error"))
+        s = get_session_helper(db, sid)
+
     user_msg  = Message(role=role, content=message, timestamp=datetime.now(), phase = "intake" if s.state == ChatState.INTAKE else "chat")
     
     db_save_message(db, sid, user_msg)
@@ -342,7 +354,26 @@ async def beneficiary_close(request, sid: str):
 
     return layout(request, content, page_title="End Chat - MedAIChat")
 
+@rt("/beneficiary/{sid}/history")
+@login_required
+def view_completed_session(request, sid: str):
+    """
+    View the complete history of a completed session.
+    """
+    db = request.state.db
+    guard = require_role(request, "beneficiary")
+    if guard: return guard
+
+    s = get_session_helper(db, sid)
+    if not s: return layout(request, Card(H3("Session not found")), "Error")
+        
+    # Check it is actually completed
+    if s.state != ChatState.COMPLETED:
+        return Redirect(f"/beneficiary/{sid}")
     
+    # Render completed session view
+    content = Titled("Completed Consultation", completed_session_view(s, s.messages))
+    return layout(request, content, page_title="Consultation History")
 
 ###  Nurse Part 
 @rt("/nurse")
@@ -398,6 +429,50 @@ async def nurse_send(request, sid : str):
 
     return chat_bubble(nurse_msg, "nurse")
 
+@rt("/nurse/session/{sid}/complete")
+@login_required
+async def nurse_complete_case(request, sid: str):
+    """
+    Handles nurse completing a case with required documentation.
+    Enforces minimum 20-character requirement and saves completion note.
+    """
+    db = request.state.db
+    guard = require_role(request, "nurse")
+    if guard: return guard
+    nurse_email = request.session.get("user")
+
+    form = await request.form()
+    completion_note = form.get("completion_note", "").strip()
+
+    # Validate minimum length
+    if len(completion_note) < 20:
+        return Div(
+            Div("Completion note must be at least 20 characters.",
+                cls="alert alert-error"), id="chat-root"
+        )
+    
+    # Complete the session
+    success = complete_session(sid, nurse_email, completion_note, db)
+
+    if not success:
+        return Div(
+            Div("Failed to complete session. Please try again.",
+                cls="alert alert-error"), id="chat-root"
+        )
+    
+    # Fetch updated session and render
+    s = get_session_helper(db, sid)
+    if not s: return Div(Div("Session not found.", cls="alert alert-error"), id="chat-root")
+
+    # Return success view
+    return Div(
+        Div("✅ Case completed successfully. You can now close this window.", cls="alert alert-success p-4"),
+        Div(
+            A("Back to Dashboard", href="/nurse", cls="btn btn-primary mt-4"),
+            cls="p-4"
+        ),
+        id="chat-root"
+    )
 
 @rt("/nurse/session/{sid}/close")
 @login_required

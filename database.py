@@ -66,7 +66,7 @@ def init_db() -> None:
             summary TEXT,
             is_read BOOLEAN DEFAULT 0,
             intake_json TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             last_activity DATETIME DEFAULT CURRENT_TIMESTAMP)
         """
     )
@@ -91,9 +91,9 @@ def init_db() -> None:
         db.execute("SELECT last_activity FROM sessions LIMIT 1")
     except sqlite3.OperationalError:
         print("[MIGRATION] Adding last_activity column to session table...")
-        db.execute("ALERT TABLE sessions ADD COLUMN last_activity DATETIME DEFAULT CURRENT_TIMESTAMP")
+        db.execute("ALTER TABLE sessions ADD COLUMN last_activity DATETIME")
         # Update existing sessions to have their last_activity set to created_at
-        db.execute("UPDATE sessions SET last_activity = created_at WHERE last_activity IS NULL")
+        db.execute("UPDATE sessions SET last_activity = created_at")
         db.commit()
         print("[MIGRATION] Migration complete!")
     db.commit()
