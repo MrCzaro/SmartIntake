@@ -620,6 +620,23 @@ def completion_modal(session_id: str) -> Any:
     )
 
 def inactive_banner_fragment(s: ChatSession) -> Any:
+    """
+    Returns appropriate banner content based on session state.
+    
+    Handles HTMX out-of-band (OOB) swapping for the inactive banner area.
+    If session is INACTIVE, shows warning banner with grace period countdown.
+    Otherwise, returns empty div to clear he banner area.
+    
+    Args:
+        s: The Current chat session
+    
+    Returns:
+        Either an inactive session banner or empty OOB div
+        
+    Note:
+        Uses hx_swap_obb to update the banner area regardless of 
+        which element triggered the HTMX request.
+    """
     if s.state == ChatState.INACTIVE:
         return inactive_session_banner(s)
     return Div("", id="inactive-banner", hx_swap_oob="true")
@@ -633,7 +650,7 @@ def inactive_session_banner(s: ChatSession) -> Any:
         session: The inactive session
 
     Returns:
-        Alert banner component
+        Alert banner component with countdown timer
     """
     minutes_left = 80 - s.minutes_since_activity
 
