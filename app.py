@@ -151,15 +151,16 @@ async def poll_chat(request, sid: str):
     
     messages = Div(*[chat_bubble(m, role) for m in s.messages])
     controls = beneficiary_controls(s) if role == "beneficiary" else ""
+    banner = inactive_banner_fragment(s) if role == "beneficiary" else ""
 
     if s.state == ChatState.CLOSED:       
         if role == "beneficiary":
             form = beneficiary_form(s.session_id, s)
         if role == "nurse":
             form = nurse_form(s.session_id, s)
-        return messages, controls, form
+        return messages, controls, form, banner
       
-    return messages, controls
+    return messages, controls, banner
 
 @rt("/nurse/poll")
 @login_required
@@ -257,11 +258,14 @@ async def beneficiary_send(request, sid: str):
             if status == "expired":
                 # Past grace period
                 return Div(
+                    Div("", id="inactive-banner", hx_swap_oob="true"),
                     Div("⚠️ This session has expired. Please start a new consultation.", cls="alert alert-warning"),
-                A("Start New Consultation", href="/start", cls="btn btn-primary mt-2")
+                    A("Start New Consultation", href="/start", cls="btn btn-primary mt-2")
                 )
-            else:
-                return Div(Div("Unable to resume session.", cls="alert alert-error"))
+            return Div(
+                Div("", id="inactive-banner", hx_swap_oob="true"),
+                Div("Unable to resume session.", cls="alert alert-error")
+            )
         s = get_session_helper(db, sid)
         if not s: return Response(status_code=404)
         
@@ -269,7 +273,7 @@ async def beneficiary_send(request, sid: str):
     
     db_save_message(db, sid, user_msg)
     db_update_session(db, sid, is_read=False)
-    
+     
     out = [chat_bubble(user_msg, role)] 
 
     if s.state == ChatState.INTAKE and s.intake and not s.intake.completed:
@@ -279,7 +283,12 @@ async def beneficiary_send(request, sid: str):
         if any(flag in message.lower() for flag in red_flags):
             urgent_bypass(s, db)
             db.commit()
-            return Div(*out)
+            s = get_session_helper(db, sid)
+            return Div(
+                *out,
+                inactive_banner_fragment(s),
+                beneficiary_controls(s)
+            )
         
         if intake.current_index < len(INTAKE_SCHEMA):
             q_info = INTAKE_SCHEMA[intake.current_index]
@@ -293,7 +302,11 @@ async def beneficiary_send(request, sid: str):
             await complete_intake(s, db)
             db.commit()
             s = get_session_helper(db, sid)
-            return Div(*out)
+            return Div(
+                *out,
+                inactive_banner_fragment(s),
+                beneficiary_controls(s)
+            )
 
         else:
             next_q = INTAKE_SCHEMA[intake.current_index]["q"]
@@ -303,8 +316,12 @@ async def beneficiary_send(request, sid: str):
         
     
     db.commit()
-    
-    return Div(*out)
+    s = get_session_helper(db, sid)
+    return Div(
+        *out,
+        inactive_banner_fragment(s),
+        beneficiary_controls(s)
+    )
 
 
 @rt("/beneficiary/{sid}/emergency")

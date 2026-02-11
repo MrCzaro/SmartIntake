@@ -2,6 +2,7 @@ from fasthtml.common import *
 from monsterui.all import *
 from typing import Any
 from models import *
+from datetime import datetime
 
 hdrs = Theme.blue.headers()
 hdrs.append(Script(src="https://unpkg.com/htmx.org@1.9.12"))
@@ -40,8 +41,9 @@ def layout(request, content, page_title="MedAiChat"):
     """
     user = request.session.get("user")
     role = request.session.get("role")
+    current_year = datetime.now().year
 
-    logo = A("MedAIChat", href="/", cls="text-xl font-bold text-white")
+    logo = A("SmartIntake", href="/", cls="text-xl font-bold text-white")
 
     links = []
 
@@ -56,7 +58,7 @@ def layout(request, content, page_title="MedAiChat"):
     return Html(
         Head(*hdrs,Title(page_title)),
         Body(Div(Header(nav), Div(Container(content, id="content", cls="mt-10"), cls="flex-1"),
-                    Footer("© 2025 MedAIChat", cls="bg-blue-600 text-white p-4"), cls="min-h-screen flex flex-col")))
+                    Footer(f"© {current_year} SmartIntake", cls="bg-blue-600 text-white p-4"), cls="min-h-screen flex flex-col")))
 
 def urgent_counter(count: int):
     """
@@ -617,7 +619,12 @@ def completion_modal(session_id: str) -> Any:
         id=f"completion-modal-container-{session_id}"
     )
 
-def inactive_session_banner(session: ChatSession) -> Any:
+def inactive_banner_fragment(s: ChatSession) -> Any:
+    if s.state == ChatState.INACTIVE:
+        return inactive_session_banner(s)
+    return Div("", id="inactive-banner", hx_swap_oob="true")
+
+def inactive_session_banner(s: ChatSession) -> Any:
     """
     Banner shown when viewing an INACTIVE session (within grace period).
     Informs user they can still send messages to resume.
@@ -628,7 +635,7 @@ def inactive_session_banner(session: ChatSession) -> Any:
     Returns:
         Alert banner component
     """
-    minutes_left = 80 - session.minutes_since_activity
+    minutes_left = 80 - s.minutes_since_activity
 
     return Div(
         DivLAligned(
@@ -641,9 +648,11 @@ def inactive_session_banner(session: ChatSession) -> Any:
             )
         ),
         cls="alert alert-warning mb-4",  
+        id="inactive-banner", 
+        hx_swap_oob="true"
     )
 
-def completed_session_view(session: ChatSession, messages: List[Message]) -> Any:
+def completed_session_view(s: ChatSession, messages: List[Message]) -> Any:
     """
     View for a COMPLETED session - shows history with completion note and option to start new session.
     
@@ -656,7 +665,7 @@ def completed_session_view(session: ChatSession, messages: List[Message]) -> Any
     """
     # Find the completion message
     completion_msg = next((m for m in messages if m.phase == "completion"), None)
-    show_completion = (session.state == ChatState.COMPLETED and session.was_urgent and completion_msg)
+    show_completion = (s.state == ChatState.COMPLETED and s.was_urgent and completion_msg)
 
     return Div(
         # Header indicating completed status

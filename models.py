@@ -44,7 +44,7 @@ class Message:
         try:
             ts = datetime.fromisoformat(row["timestamp"])
         except (ValueError, TypeError):
-            ts = datetime.now()  # Fallback to current time if parsing fails
+            ts = datetime.utcnow()  # Fallback to current time if parsing fails
             print(f"Warning: Corrupt timestamp found in session {row.get('session_id')}")
         
         return cls(
@@ -102,8 +102,8 @@ class ChatSession:
     session_id : str
     user_email : str
     state : ChatState = ChatState.INTAKE 
-    created_at: datetime = field(default_factory=datetime.now)
-    last_activity: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=datetime.utcnow)
+    last_activity: datetime = field(default_factory=datetime.utcnow)
     messages: list[Message] = field(default_factory=list)
     intake : IntakeState = field(default_factory=IntakeState)
     summary: str | None = None
@@ -120,7 +120,7 @@ class ChatSession:
         """Calculate how many minutes have passed since last activity"""
         if not self.last_activity:
             return 0
-        delta = datetime.now() - self.last_activity
+        delta = datetime.utcnow() - self.last_activity
         return int(delta.total_seconds() / 60)
     
     @staticmethod
@@ -157,16 +157,16 @@ class ChatSession:
         
         raw_date = row["created_at"]
         try:
-            ca = datetime.fromisoformat(raw_date.replace(" ", "T")) if raw_date else datetime.now()
+            ca = datetime.fromisoformat(raw_date.replace(" ", "T")) if raw_date else datetime.utcnow()
 
         except:
-            ca = datetime.now()
+            ca = datetime.utcnow()
 
         raw_activity = row["last_activity"]
         try:
-            la = datetime.fromisoformat(raw_activity.replace(" ", "T")) if raw_activity else datetime.now()
+            la = datetime.fromisoformat(raw_activity.replace(" ", "T")) if raw_activity else datetime.utcnow()
         except:
-            la = datetime.now()
+            la = datetime.utcnow()
         
         state = cls._coerce_state(row["state"])
         return cls(

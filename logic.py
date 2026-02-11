@@ -27,7 +27,7 @@ def system_message(sid:str,  db: sqlite3.Connection, text: str):
         text (str) : The content of the system notification.
         db (sqlite3.Connection): Open database connection.
     """
-    msg = Message(role="assistant", content=text,timestamp=datetime.now(),phase="system")
+    msg = Message(role="assistant", content=text,timestamp=datetime.utcnow(),phase="system")
     db_save_message(db, sid, msg)
 
 async def complete_intake(s: ChatSession, db: sqlite3.Connection):
@@ -51,11 +51,11 @@ async def complete_intake(s: ChatSession, db: sqlite3.Connection):
     
     # Add it as a hidden message in the chat history
     if s.summary:
-        sum_msg = Message(role="assistant", content=s.summary, timestamp=datetime.now(), phase="summary")
+        sum_msg = Message(role="assistant", content=s.summary, timestamp=datetime.utcnow(), phase="summary")
         db_save_message(db, s.session_id, sum_msg)
     
     sys_content = "Thank you. Your intake is complete. A nurse will review your case shortly."
-    sys_msg = Message(role="assistant", content=sys_content, timestamp=datetime.now(), phase="system")
+    sys_msg = Message(role="assistant", content=sys_content, timestamp=datetime.utcnow(), phase="system")
     db_save_message(db, s.session_id, sys_msg)
     db.commit()
 
@@ -271,7 +271,7 @@ def close_session(s: ChatSession, db: sqlite3.Connection):
     
     s.state = ChatState.CLOSED
     
-    close_msg = Message(role="assistant", content="This session has been closed.", timestamp=datetime.now(), phase="system")
+    close_msg = Message(role="assistant", content="This session has been closed.", timestamp=datetime.utcnow(), phase="system")
     db_save_message(db, s.session_id, close_msg)
     db.commit()
 
@@ -300,7 +300,7 @@ def complete_session(session_id: str, nurse_email: str, completion_note: str, db
     completion_msg = Message(
         role="assistant",
         content=f"**Case Completed by Nurse {nurse_email}**\n\n{completion_note}",
-        timestamp=datetime.now(),
+        timestamp=datetime.utcnow(),
         phase="completion"
     )    
     db_save_message(db, session_id, completion_msg)
@@ -355,7 +355,7 @@ def db_cleanup_stale_sessions(db: sqlite3.Connection):
     IMPORTANT: URGENT sessions are never auto-timed out. They remain open
     until explicitly closed by a nurse with proper documentation.
     """
-    now = datetime.now()
+    now = datetime.utcnow()
     # Tier 1: Soft timeout
     
 
@@ -373,7 +373,10 @@ def db_cleanup_stale_sessions(db: sqlite3.Connection):
 
 
         # Move to INACTIVE
-        db.execute("UPDATE sessions SET state = ? WHERE id = ?", (ChatState.INACTIVE.value, sid))
+        db.execute("UPDATE sessions SET state = ?, last_activity = datetime('now') WHERE id = ? AND state != ?",
+                   (ChatState.INACTIVE.value, sid, ChatState.URGENT.value),
+                   )
+
 
         time_str = now.strftime('%I:%M %p')
         message_content = f"⏸️ This session became inactive at {time_str} due to inactivity. You have 1 hour to resume before it closes permanently."
@@ -396,20 +399,20 @@ def db_cleanup_stale_sessions(db: sqlite3.Connection):
         sid = session["id"]
 
         # Permanently close
-        db.execute("UPDATE sessions SET state = ? WHERE id=?", (ChatState.CLOSED.value, sid))
-
+        db.execute("UPDATE sessions SET state = ?, last_activity = datetime('now') WHERE id = ? AND state != ?", 
+                   (ChatState.CLOSED.value, sid, ChatState.URGENT.value),
+                   )
         time_str = now.strftime('%I:%M %p')
-        message_content = f"⏸️ This session became inactive at {time_str} due to inactivity. You have 1 hour to resume before it closes permanently."
+        message_content = f"🔒 This session was permanently closed at {time_str} due to extended inactivity. You can view the history or start a new consultation."
         print(f"[DEBUG] Message content: {message_content}")
         # Add system message documenting the permanent closure
         closure_msg = Message(
             role="assistant",
-            content=message_content,#f"🔒 This session was permanently closed at {time_str} due to extended inactivity. You can view the history or start a new consultation.",
+            content=message_content,
             timestamp=now,
             phase="system"
         )
         db_save_message(db,sid, closure_msg)
-        print(f"[CLEANUP] Session {sid} permanently CLOSED after grace period")
 
     db.commit()
 
