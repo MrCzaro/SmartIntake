@@ -237,7 +237,7 @@ def emergency_header(s: ChatSession):
     Returns: 
         Div: A navbar component with a unique ID for HTMX Out-of-Band (OOB) updates.
     """
-    if s.state == ChatState.CLOSED:
+    if s.state in (ChatState.CLOSED, ChatState.COMPLETED):
         return Div(id="chat-header", hx_swap_oob="true") 
     is_urgent = s.state == ChatState.URGENT
 
@@ -321,9 +321,12 @@ def beneficiary_controls(s: ChatSession) -> Any:
     based on the current chat session state.
 
     States:
+    - CLOSED: Closed for non urgent cases
     - INTAKE: Intake still in progress
     - WAITING_FOR_NURSE: Intake completed, awaiting nurse review
-    - NURSE_ACTIVE / URGENT: Nurse is engaged, free chat enabled
+    - NURSE_ACTIVE : Nurse is engaged, free chat enabled
+    - URGENT: Nurse is being notified without intake part
+
 
     Args:
         s (ChatSession): The current chat session instance.
@@ -333,17 +336,25 @@ def beneficiary_controls(s: ChatSession) -> Any:
     """
     content = ""
     if s.state == ChatState.CLOSED:
-        return Div("", id="beneficiary-controls")
+        return Div("", id="beneficiary-controls",  hx_swap_oob="true")
+    
     if s.state == ChatState.INTAKE:
         content =  Div("Please answer all intake questions to continue.", cls="alert alert-warning mt-4")
     
     if s.state == ChatState.WAITING_FOR_NURSE:
         content =  Div("Your intake is complete. Waiting for a nurse...", cls="alert alert-info mt-4")
     
-    if s.state in (ChatState.NURSE_ACTIVE, ChatState.URGENT):
+    if s.state == ChatState.NURSE_ACTIVE:
         content = Div("You may continue chatting with the nurse.", cls = "alert alert-success mt-4")
     
-    return Div(content, id="beneficiary-controls")
+    if s.state == ChatState.URGENT:
+        if s.nurse_joined:
+            content = Div("You may continue chatting with the nurse.", cls="alert alert-success mt-4")
+        else:
+            content = Div("Urgent case. A nurse has been notified.", cls="alert alert-error mt-4")
+
+    
+    return Div(content, id="beneficiary-controls",  hx_swap_oob="true")
     
 
 def nurse_form(sid: str, s: ChatSession) -> Any:
@@ -367,6 +378,15 @@ def nurse_form(sid: str, s: ChatSession) -> Any:
             hx_swap_oob="true",
             cls="p-4"
         )
+    
+    if s.state == ChatState.CLOSED:
+        return Div(
+            Div(Span("✅ This case has been completed by a nurse.", cls="alert alert-success w-full text-center")),
+            id="nurse-input-form",
+            hx_swap_oob="true",
+            cls="p-4"
+        )
+
     
     # Check if this is an urgent case
     is_urgent = s.state == ChatState.URGENT
@@ -620,7 +640,7 @@ def inactive_session_banner(session: ChatSession) -> Any:
                   cls="ml-3"
             )
         ),
-        cls="alert alert-warning mb-4"
+        cls="alert alert-warning mb-4",  
     )
 
 def completed_session_view(session: ChatSession, messages: List[Message]) -> Any:
@@ -636,6 +656,7 @@ def completed_session_view(session: ChatSession, messages: List[Message]) -> Any
     """
     # Find the completion message
     completion_msg = next((m for m in messages if m.phase == "completion"), None)
+    show_completion = (session.state == ChatState.COMPLETED and session.was_urgent and completion_msg)
 
     return Div(
         # Header indicating completed status
@@ -650,7 +671,7 @@ def completed_session_view(session: ChatSession, messages: List[Message]) -> Any
             Div(completion_msg.content, cls="prose mt-2"),
             P(f"Completed at {completion_msg.display_time}", cls=TextPresets.muted_sm + " mt-2"),
             cls="mb-4 bg-green-50"
-        ) if completion_msg else ""),
+        ) if show_completion  else ""),
 
         # Chat history
         Div(

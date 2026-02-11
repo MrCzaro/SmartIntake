@@ -67,7 +67,9 @@ def init_db() -> None:
             is_read BOOLEAN DEFAULT 0,
             intake_json TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            last_activity DATETIME DEFAULT CURRENT_TIMESTAMP)
+            last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
+            nurse_joined INTEGER DEFAULT 0,
+            was_urgent INTEGER DEFAULT 0)
         """
     )
 
@@ -84,18 +86,24 @@ def init_db() -> None:
             FOREIGN KEY (session_id) REFERENCES sessions (id)
         )
     """)
-    
-    # Migration: Add last_activity column if it does not exist
-    # This handles existing databases that do not have this field yet.
     try:
-        db.execute("SELECT last_activity FROM sessions LIMIT 1")
+        db.execute("SELECT nurse_joined FROM sessions LIMIT 1")
     except sqlite3.OperationalError:
-        print("[MIGRATION] Adding last_activity column to session table...")
-        db.execute("ALTER TABLE sessions ADD COLUMN last_activity DATETIME")
-        # Update existing sessions to have their last_activity set to created_at
-        db.execute("UPDATE sessions SET last_activity = created_at")
+        print("[MIGRATION] Adding nurse_joined column to sessions table...")
+        db.execute("ALTER TABLE sessions ADD COLUMN nurse_joined INTEGER DEFAULT 0")
+        db.execute("UPDATE sessions SET nurse_joined = 0 WHERE nurse_joined IS NULL")
         db.commit()
         print("[MIGRATION] Migration complete!")
+
+    try:
+        db.execute("SELECT was_urgent FROM sessions LIMIT 1")
+    except sqlite3.OperationalError:
+        print("[MIGRATION] Adding was_urgent column to sessions table...")
+        db.execute("ALTER TABLE sessions ADD COLUMN was_urgent INTEGER DEFAULT 0")
+        db.execute("UPDATE sessions SET was_urgent = 0 WHERE was_urgent IS NULL")
+        db.commit()
+        print("[MIGRATION] Migration complete!")
+    
     db.commit()
     db.close()
 

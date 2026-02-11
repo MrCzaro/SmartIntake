@@ -108,6 +108,8 @@ class ChatSession:
     intake : IntakeState = field(default_factory=IntakeState)
     summary: str | None = None
     is_read : bool = False
+    nurse_joined : bool = False
+    was_urgent : bool = False
 
     @property
     def id(self):
@@ -176,5 +178,7 @@ class ChatSession:
             summary=row["summary"],
             intake=intake_state,
             is_read=bool(row["is_read"]),
+            nurse_joined=bool(row["nurse_joined"]) if "nurse_joined" in row.keys() else False,
+            was_urgent=bool(row["was_urgent"]) if "was_urgent" in row.keys() else False,
             messages=[]
         )

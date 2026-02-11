@@ -145,20 +145,21 @@ def start(request):
 async def poll_chat(request, sid: str):
     db = request.state.db
     role = request.session.get("role")
-
+    db_cleanup_stale_sessions(db)
     s = get_session_helper(db, sid)
     if not s: return layout(request, Card(H3("Session not found")), "Error")
     
     messages = Div(*[chat_bubble(m, role) for m in s.messages])
+    controls = beneficiary_controls(s) if role == "beneficiary" else ""
 
     if s.state == ChatState.CLOSED:       
         if role == "beneficiary":
             form = beneficiary_form(s.session_id, s)
         if role == "nurse":
             form = nurse_form(s.session_id, s)
-        return messages, form
+        return messages, controls, form
       
-    return messages
+    return messages, controls
 
 @rt("/nurse/poll")
 @login_required
@@ -166,7 +167,7 @@ def nurse_poll(request):
     db = request.state.db
     guard = require_role(request, "nurse")
     if guard: return guard
-
+    db_cleanup_stale_sessions(db)
     active_sessions, urgent_count = get_nurse_dashboard_data(db)
    
     if not active_sessions:
@@ -187,6 +188,7 @@ def nurse_poll(request):
 @login_required
 def beneficiary_dashboard(request):
     db = request.state.db
+    db_cleanup_stale_sessions(db)
     guard = require_role(request, "beneficiary")
     if guard: return guard
 
@@ -229,9 +231,6 @@ def beneficiary_view(request, sid: str):
     s = get_session_helper(db, sid)
     if not s: return layout(request, Card(H3("Session not found")), "Error")
 
-    # content = Div(
-    #     emergency_header(s),
-    #     Div(render_chat_view(s, role), cls="container mx-auto p-4"),cls="min-h-screen bg-base-100") 
     content = Titled(f"Beneficiary Chat", render_chat_view(s, role))
     return layout(request, content, page_title = "Beneficiary Chat - MedAIChat")
 
@@ -250,7 +249,8 @@ async def beneficiary_send(request, sid: str):
     form = await request.form()
     message = form.get("message", "").strip()
     if not message: return "" 
-    
+     
+
     if s.state == ChatState.INACTIVE:
         success, status = reactivate_session(sid, db)
         if not success:
@@ -263,7 +263,8 @@ async def beneficiary_send(request, sid: str):
             else:
                 return Div(Div("Unable to resume session.", cls="alert alert-error"))
         s = get_session_helper(db, sid)
-
+        if not s: return Response(status_code=404)
+        
     user_msg  = Message(role=role, content=message, timestamp=datetime.now(), phase = "intake" if s.state == ChatState.INTAKE else "chat")
     
     db_save_message(db, sid, user_msg)
@@ -291,6 +292,7 @@ async def beneficiary_send(request, sid: str):
             db_update_session(db, sid, intake_json=json.dumps(asdict(intake)))
             await complete_intake(s, db)
             db.commit()
+            s = get_session_helper(db, sid)
             return Div(*out)
 
         else:
@@ -368,7 +370,7 @@ def view_completed_session(request, sid: str):
     if not s: return layout(request, Card(H3("Session not found")), "Error")
         
     # Check it is actually completed
-    if s.state != ChatState.COMPLETED:
+    if s.state not in (ChatState.COMPLETED, ChatState.CLOSED):
         return Redirect(f"/beneficiary/{sid}")
     
     # Render completed session view
