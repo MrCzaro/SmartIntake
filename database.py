@@ -86,24 +86,7 @@ def init_db() -> None:
             FOREIGN KEY (session_id) REFERENCES sessions (id)
         )
     """)
-    try:
-        db.execute("SELECT nurse_joined FROM sessions LIMIT 1")
-    except sqlite3.OperationalError:
-        print("[MIGRATION] Adding nurse_joined column to sessions table...")
-        db.execute("ALTER TABLE sessions ADD COLUMN nurse_joined INTEGER DEFAULT 0")
-        db.execute("UPDATE sessions SET nurse_joined = 0 WHERE nurse_joined IS NULL")
-        db.commit()
-        print("[MIGRATION] Migration complete!")
-
-    try:
-        db.execute("SELECT was_urgent FROM sessions LIMIT 1")
-    except sqlite3.OperationalError:
-        print("[MIGRATION] Adding was_urgent column to sessions table...")
-        db.execute("ALTER TABLE sessions ADD COLUMN was_urgent INTEGER DEFAULT 0")
-        db.execute("UPDATE sessions SET was_urgent = 0 WHERE was_urgent IS NULL")
-        db.commit()
-        print("[MIGRATION] Migration complete!")
-    
+        
     db.commit()
     db.close()
 

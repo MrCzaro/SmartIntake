@@ -30,12 +30,25 @@ rt = app.route
 def favicon(request):
     """
     Redirects the browser to the static file.
+    
+    Returns:
+        Redirect to favicon.ico
     """
     return Redirect("/static/favicon.ico")
 
 ### Registration/Login/Logout
 @rt("/signup")
 async def signup_user(request):
+    """
+    Handler user registration for both beneficiaries and nurses.
+    
+    GET: Display signup form
+    POST: Process registration, create user account, and establish session.
+    
+    Returns: 
+        GET: Signup form page
+        POST: Redirect to / (role-based dashboard) on success, or form with errors.
+    """
     page_title="Signup - MedAIChat"
     if request.method == "GET":
         return layout(request, signup_card(), page_title)
@@ -70,6 +83,16 @@ async def signup_user(request):
 
 @rt("/login")
 async def login(request):
+    """
+    Handle user authentication for existing accounts.
+    
+    GET: Display login form
+    POST: Validate credentials and establish session
+    
+    Returns:
+        GET: Login form page
+        POST: Redirect to / (role-based dashboard) on success, or form with errors.
+    """
     page_title = "Login - MedAIChat"
     if request.method == "GET":
         return layout(request, login_card(), page_title)
@@ -96,6 +119,12 @@ async def login(request):
 @rt("/logout")
 @login_required
 def logout(request):
+    """
+    Clear user session and redirect to login page.
+    
+    Returns:
+        Redirect to /login
+    """
     request.session.clear()
     return Redirect("/login")
 
@@ -103,6 +132,16 @@ def logout(request):
 @rt("/")
 @login_required
 def index(request):
+    """
+    Role-based dashboard router for authenticated users.
+    
+    Redirects users to their appropriate dashboard based on role:
+    - Beneficiaries -> /beneficiary (patient consultation view)
+    - Nurses -> /nurse (triage queue view)
+    
+    Returns:
+        Redirect to role-specific dashboard
+    """
     role = request.session.get("role")
 
     if role == "beneficiary":
@@ -119,6 +158,15 @@ def index(request):
 @rt("/start")
 @login_required
 def start(request):
+    """
+    Create new consultation session for authenticated beneficiaries.
+    
+    Initializes a new ChatSession with INTAKE state and first intake question.
+    Redirects to the chat interface for the new session
+    
+    Returns:
+        Redirect to /beneficiary/{session_id}
+    """
     db = request.state.db
     sid = str(uuid4())
     email = request.session.get("user")
@@ -143,6 +191,26 @@ def start(request):
 @rt("/chat/{sid}/poll")
 @login_required
 async def poll_chat(request, sid: str):
+    """
+    HTMX polling endpoint for real-time chat updates.
+    
+    Called every 3 seconds by cilent to refresh chat messages, controls, and session status.
+    Runs cleanup on each poll to handle timeouts.
+    
+    Args:
+        request: Authenticated request
+        id: Session ID to poll
+        
+    Returns:
+        Tuple of HTMX partials: (messages, controls, form, banner)
+        - messages: All chat bubbles
+        - controls: Session status/instructions
+        - form: Input form (only for CLOSED state)
+        - banner: Inactive session warning (beneficiary only)
+    
+    Note:
+        Returns different componets based on session state and user role.
+    """
     db = request.state.db
     role = request.session.get("role")
     db_cleanup_stale_sessions(db)
@@ -165,6 +233,17 @@ async def poll_chat(request, sid: str):
 @rt("/nurse/poll")
 @login_required
 def nurse_poll(request):
+    """
+    HTMX polling endpoint for nurse dashboard updates.
+    
+    Called every 3 seconds to refresh avtive cases queue and urgent count.
+    Runs cleanup to move stale sessions to INACTIVE/CLOSED states.
+    
+    Returns:
+        Tuple of HTMX partials (case_table, urgent count)
+        - case table: Active sessions or 'no cases' message
+        - urgent_badge: Count of urgent cases with styling.
+    """
     db = request.state.db
     guard = require_role(request, "nurse")
     if guard: return guard
@@ -188,6 +267,15 @@ def nurse_poll(request):
 @rt("/beneficiary")
 @login_required
 def beneficiary_dashboard(request):
+    """
+    Display beneficiary's consultation history and start button.
+    
+    Shows all past and active consultation for the current user,
+    with ability to start new session or view existing ones.
+    
+    Returns:
+        Full page with consultation table and "Start New" button.
+    """
     db = request.state.db
     db_cleanup_stale_sessions(db)
     guard = require_role(request, "beneficiary")
@@ -224,6 +312,19 @@ def beneficiary_dashboard(request):
 @rt("/beneficiary/{sid}")
 @login_required
 def beneficiary_view(request, sid: str):
+    """
+    Display active chat session interface for beneficiary.
+    
+    Shows full chat interface with message history, input form,
+    emergency button, and session controls.
+    
+    Args:
+        request: Authenticated beneficiary request
+        sid: Session ID to display
+    
+    Returns:
+        Full page with chat interface
+    """
     db = request.state.db
     guard = require_role(request, "beneficiary")
     if guard: return guard
@@ -239,6 +340,22 @@ def beneficiary_view(request, sid: str):
 @rt("/beneficiary/{sid}/send")
 @login_required
 async def beneficiary_send(request, sid: str):
+    """
+    Process beneficiary message submission and handle session reactivation.
+    
+    Handles incoming messages from beneficiaries, manages session reactivation
+    for INACTIVE sessions, and controls intake workflow including emergency
+    escalation and question progression.
+    
+    Args:
+        request: Beneficiary request with form data
+        sid: Session ID receiving the message
+    
+    Form Data: User's message text
+    
+    Returns:
+        HTMX partial with new messages, controls, and status updates
+    """
     db = request.state.db
     role = request.session.get("role")
     guard = require_role(request, "beneficiary")
@@ -327,6 +444,19 @@ async def beneficiary_send(request, sid: str):
 @rt("/beneficiary/{sid}/emergency")
 @login_required
 def beneficiary_emergency(request, sid: str):
+    """
+    Escalate session to URGENT status via emergency SOS button.
+    
+    Manually flags case for immediate nurse attention, bypassing normal
+    triage queue. Returns updated emergency header via HTMX.
+    
+    Args:
+        request: Beneficiary request
+        sid: Session to escalate 
+    
+    Returns:
+        Updated emergency header showing 'NURSE NOTIFIED' status
+    """
     db = request.state.db
     guard = require_role(request, "beneficiary")
     if guard: return guard
@@ -342,9 +472,25 @@ def beneficiary_emergency(request, sid: str):
     s = get_session_helper(db, sid)
     return emergency_header(s)
 
+
 @rt("/beneficiary/{sid}/close")
 @login_required
 async def beneficiary_close(request, sid: str):
+    """
+    Close consultation session manually by beneficiary.
+    
+    Marks session as CLOSED and adds system message documenting closure.
+    Returns either HTMX partial or full page based on request type.
+    
+    Args:
+        request: Beneficiary request
+        sid: Session to close
+        
+    Returns:
+        HTMX request: Updated chat view with closed state
+        Normal requst: Full 'Session Ended' page
+    
+    """
     db = request.state.db
     s = get_session_helper(db, sid)
     if not s: return Response(status_code=404)
@@ -378,6 +524,16 @@ async def beneficiary_close(request, sid: str):
 def view_completed_session(request, sid: str):
     """
     View the complete history of a completed session.
+
+    Display read-only view of past consultation including all messages,
+    completion notes (if any), and option to start new consultation.
+
+    Args:
+        request: Beneficairy request
+        sid: Session ID to view
+
+    Returns:
+        Full page with completed session view.
     """
     db = request.state.db
     guard = require_role(request, "beneficiary")
@@ -398,6 +554,15 @@ def view_completed_session(request, sid: str):
 @rt("/nurse")
 @login_required
 def nurse_dashboard(request):
+    """
+    Display nurse triage dashboard with active case queue.
+    
+    Shows real-time list of sessions requiring nurse attention, 
+    with urgent cases highlighted and auto-refresh every 3 seconds.
+    
+    Returns:
+        Full page with dashboard layout.
+    """
     guard = require_role(request, "nurse")
     if guard: return guard
 
@@ -410,6 +575,19 @@ def nurse_dashboard(request):
 @rt("/nurse/{sid}")
 @login_required
 def nurse_view(request, sid: str):
+    """
+    Display nurse review interface for patient session.
+    
+    Shows AI-generated intake summary, full chat history, and provides
+    interface for nurse to communicate with patient and mange case.
+    
+    Args:
+        request: Nurse request
+        sid: Session to review
+        
+    Returns:
+        Full page with nurse chat interface
+    """
     db = request.state.db
     guard = require_role(request, "nurse")
     if guard: return guard
@@ -430,6 +608,22 @@ def nurse_view(request, sid: str):
 @rt("/nurse/{sid}/send")
 @login_required
 async def nurse_send(request, sid : str):
+    """
+    Process nurse message submission to patient.
+    
+    Sends nurse message to beneficiary and returns message bubble
+    via HTMX for real-time display.
+    
+    Args:
+        request: Nurse request with form data
+        sid: Session receiving the message
+        
+    Form Data:
+        message: Nurse's message text
+        
+    Returns:
+        Single chat bubble HTMX partial (nurse message)
+    """
     db = request.state.db
     guard = require_role(request, "nurse")
     if guard: return guard
@@ -452,8 +646,21 @@ async def nurse_send(request, sid : str):
 @login_required
 async def nurse_complete_case(request, sid: str):
     """
-    Handles nurse completing a case with required documentation.
-    Enforces minimum 20-character requirement and saves completion note.
+    Formally complete case with required nurse documentation.
+
+    Enforces minimum 20-character completion note required and 
+    marks case as COMPLETED. Used primarily for urgent cases requiring 
+    formal closure.
+
+    Args:
+        request: Nurse requset with form data
+        sid: Session to complete
+
+    Form Data: 
+        completion_note: Nurse's documentation (min 20 chars)
+
+    Returns:
+        Success page with 'Back to Dashboard' button, or error alert.
     """
     db = request.state.db
     guard = require_role(request, "nurse")
@@ -496,6 +703,20 @@ async def nurse_complete_case(request, sid: str):
 @rt("/nurse/session/{sid}/close")
 @login_required
 async def nurse_close(request, sid: str):
+    """
+    Close session manually by nurse.
+    
+    Marks session as CLOSED and documents nurse closure.
+    Returns either HTMX partial or full page based on request type.
+    
+    Args:
+        request: Nurse request
+        sid: Session to close
+        
+    Returns:
+        HTMX request: Updated chat view with closed state
+        Normal request: Full 'Session Ended' page
+    """
     db = request.state.db
     guard = require_role(request, "nurse")
     if guard: return guard

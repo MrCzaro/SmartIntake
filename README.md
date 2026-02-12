@@ -384,7 +384,7 @@ Contributions are welcome! Please follow these guidelines:
 
 - Improve UI/UX design
 - Add automated tests
-- Implement new features from roadmap
+- Implement new features
 - Fix bugs or improve documentation
 - Optimize database queries
 - Enhance AI prompts

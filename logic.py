@@ -9,6 +9,9 @@ def intake_finished(s: ChatSession) -> bool:
     """
     Checks if the beneficiary has answered all questions in the intake schema.
     
+    Args:
+        s (ChatSession): Chat session.
+    
     Returns:
         bool: True if the current index matches or exceeds the schema length.
     """
@@ -23,7 +26,7 @@ def system_message(sid:str,  db: sqlite3.Connection, text: str):
     (e.g., 'A nurse has joined') and are styled differently in the UI.
     
     Args:
-        s (ChatSession): The session to update .
+        s (ChatSession): The session to update.
         text (str) : The content of the system notification.
         db (sqlite3.Connection): Open database connection.
     """
@@ -162,10 +165,14 @@ async def generate_intake_summary(s: ChatSession):
 def db_create_session(db: sqlite3.Connection, session: ChatSession, first_message: Message):
     """
     Atomically creates a new session and its initial message.
+    
     Args:
         db (sqlite3.Connection): Open database connection.
         session (ChatSession): The session to store.
         first_message (Message): The initial message to store.
+    
+    Returns:
+        Bool
     """
     try:
         with db: # Start transaction
@@ -205,7 +212,10 @@ def db_save_message(db: sqlite3.Connection, session_id: str, message: Message):
 def db_update_session(db: sqlite3.Connection, session_id: str, **kwargs):
     """
     Updates specific fields in a session.
-    Usage: db_update_session(db, sid, state=ChatState.COMPLETED, summary="...")
+    Args:
+        db (sqlite3.Connection): Open database connection.
+        session_id (str): The ID of the session the message belongs to.
+        **kwargs: Other key word arguments to DB
     """
     if not kwargs:
         return
@@ -221,11 +231,15 @@ def db_update_session(db: sqlite3.Connection, session_id: str, **kwargs):
     db.execute(query, values)
     db.commit()
 
-def db_get_session(db: sqlite3.Connection, sid: str) -> ChatSession | None:
+def db_get_session(db: sqlite3.Connection, session_id: str) -> ChatSession | None:
     """
     Retrieves a single session object by its ID.
+    
+    Args:
+        db (sqlite3.Connection): Open database connection.
+        session_id (str): The ID of the chat session
     """
-    row = db.execute("SELECT * FROM sessions WHERE id = ?", (sid,)).fetchone()
+    row = db.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
     if not row:
         return None
     return ChatSession.from_row(row) if row else None
