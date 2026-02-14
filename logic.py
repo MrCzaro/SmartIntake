@@ -46,7 +46,13 @@ async def complete_intake(s: ChatSession, db: sqlite3.Connection):
     if s.state != ChatState.INTAKE: return
     
     # Generate the intake summary
-    await generate_intake_summary(s)
+    
+    try:
+        await generate_intake_summary(s)
+    except Exception as e:
+        print(f"[SUMMARY] AI generation failed {e}")
+        s.summary = None
+
     s.state = ChatState.WAITING_FOR_NURSE
     s.intake.completed = True
     intake_json = json.dumps(asdict(s.intake))
@@ -336,7 +342,7 @@ def db_get_messages(db: sqlite3.Connection, sid: str) -> list[Message]:
     """
     Retrieves all messages for a session, ordered chronologically.
     """
-    rows = db.execute("SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC", (sid,)).fetchall()
+    rows = db.execute("SELECT * FROM messages WHERE session_id = ? ORDER BY id ASC", (sid,)).fetchall()
     return [Message.from_row(row) for row in rows]
 
 

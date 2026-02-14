@@ -26,6 +26,80 @@ SmartIntake bridges the gap between initial patient contact and professional med
 
 ---
 
+## 📸 Screenshots
+
+### Patient Experience
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/beneficiary_intake_1.png" alt="Intake part">
+      <p align="center"><b>AI Intake Interview</b><br/>Structured questionnaire</p>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/beneficiary_intake_2.png" alt="Intake part cdn...">
+      <p align="center"><b>AI Intake Interview</b><br/>Structured questionnaire</p>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/beneficiary_urgent_1.png" alt="Intake part cdn...">
+      <p align="center"><b>Emergency SOS</b><br/>Instant escalation to urgent queue</p>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/beneficiary_urgent_2.png" alt="Intake part cdn...">
+      <p align="center"><b>Emergency SOS cdn.. </b><br/>Instant escalation to urgent queue</p>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/beneficiary_urgent_3.png" alt="Intake part cdn...">
+      <p align="center"><b>Emergency SOS cdn.. </b><br/>Instant escalation to urgent queue</p>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/beneficiary_urgent_key_word.png" alt="Intake part cdn...">
+      <p align="center"><b>Urgent Keyword Capture</b><br/>Instant escalation to urgent queue</p>
+    </td>
+  </tr>
+</table>
+
+### Nurse Experience
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/nurse_view_1.png" alt="Nurse Chat perspective">
+      <p align="center"><b>Triage Queue</b><br/>AI summary with full patient communication</p>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/nurse_view_2.png" alt="Case Review">
+      <p align="center"><b>Case Review</b><br/>Urgent escalation using keywords</p>
+    </td>
+     <td width="50%">
+      <img src="docs/screenshots/nurse_completion_modal.png" alt="Case Review">
+      <p align="center"><b>Case Review</b><br/>Urgent Case Modal Completion</p>
+    </td>
+     <td width="50%">
+      <img src="docs/screenshots/nurse_dashboard.png" alt="Case Review">
+      <p align="center"><b>Triage Queue</b><br/>Nursing Dashboard</p>
+    </td>
+  </tr>
+</table>
+
+### Key Features in Action
+<table>
+  <tr>
+    <td width="33%">
+      <img src="docs/screenshots/emergency-escalation.png" alt="Emergency">
+      <p align="center"><b>Emergency SOS</b><br/>Instant escalation to urgent queue</p>
+    </td>
+    <td width="33%">
+      <img src="docs/screenshots/session-timeout.png" alt="Timeout">
+      <p align="center"><b>Session Management</b><br/>Two-tier timeout with grace period</p>
+    </td>
+    <td width="33%">
+      <img src="docs/screenshots/completion-modal.png" alt="Completion">
+      <p align="center"><b>Case Completion</b><br/>Required documentation for audit trail</p>
+    </td>
+  </tr>
+</table>
+
+--- 
+
 ## ✨ Key Features
 
 ### For Patients (Beneficiaries)
