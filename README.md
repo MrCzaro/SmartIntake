@@ -93,25 +93,6 @@ SmartIntake bridges the gap between initial patient contact and professional med
    </tr>
 </table>
 
-
-### Key Features in Action
-<table>
-  <tr>
-    <td width="33%">
-      <img src="docs/screenshots/emergency-escalation.png" alt="Emergency">
-      <p align="center"><b>Emergency SOS</b><br/>Instant escalation to urgent queue</p>
-    </td>
-    <td width="33%">
-      <img src="docs/screenshots/session-timeout.png" alt="Timeout">
-      <p align="center"><b>Session Management</b><br/>Two-tier timeout with grace period</p>
-    </td>
-    <td width="33%">
-      <img src="docs/screenshots/completion-modal.png" alt="Completion">
-      <p align="center"><b>Case Completion</b><br/>Required documentation for audit trail</p>
-    </td>
-  </tr>
-</table>
-
 --- 
 
 ## ✨ Key Features
