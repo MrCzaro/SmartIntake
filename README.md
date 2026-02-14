@@ -39,7 +39,11 @@ SmartIntake bridges the gap between initial patient contact and professional med
       <img src="docs/screenshots/beneficiary_intake_2.png" alt="Intake part cdn...">
       <p align="center"><b>AI Intake Interview</b><br/>Structured questionnaire</p>
     </td>
-    <td width="50%">
+  </tr>
+</table>
+<table>
+   <tr>
+   <td width="50%">
       <img src="docs/screenshots/beneficiary_urgent_1.png" alt="Intake part cdn...">
       <p align="center"><b>Emergency SOS</b><br/>Instant escalation to urgent queue</p>
     </td>
@@ -47,7 +51,12 @@ SmartIntake bridges the gap between initial patient contact and professional med
       <img src="docs/screenshots/beneficiary_urgent_2.png" alt="Intake part cdn...">
       <p align="center"><b>Emergency SOS cdn.. </b><br/>Instant escalation to urgent queue</p>
     </td>
-    <td width="50%">
+   </tr>
+</table>
+
+<table>
+   <tr>
+   <td width="50%">
       <img src="docs/screenshots/beneficiary_urgent_3.png" alt="Intake part cdn...">
       <p align="center"><b>Emergency SOS cdn.. </b><br/>Instant escalation to urgent queue</p>
     </td>
@@ -55,9 +64,8 @@ SmartIntake bridges the gap between initial patient contact and professional med
       <img src="docs/screenshots/beneficiary_urgent_key_word.png" alt="Intake part cdn...">
       <p align="center"><b>Urgent Keyword Capture</b><br/>Instant escalation to urgent queue</p>
     </td>
-  </tr>
+   </tr>
 </table>
-
 ### Nurse Experience
 <table>
   <tr>
@@ -69,7 +77,12 @@ SmartIntake bridges the gap between initial patient contact and professional med
       <img src="docs/screenshots/nurse_view_2.png" alt="Case Review">
       <p align="center"><b>Case Review</b><br/>Urgent escalation using keywords</p>
     </td>
-     <td width="50%">
+  </tr>
+</table>
+
+<table>
+   <tr>
+    <td width="50%">
       <img src="docs/screenshots/nurse_completion_modal.png" alt="Case Review">
       <p align="center"><b>Case Review</b><br/>Urgent Case Modal Completion</p>
     </td>
@@ -77,8 +90,9 @@ SmartIntake bridges the gap between initial patient contact and professional med
       <img src="docs/screenshots/nurse_dashboard.png" alt="Case Review">
       <p align="center"><b>Triage Queue</b><br/>Nursing Dashboard</p>
     </td>
-  </tr>
+   </tr>
 </table>
+
 
 ### Key Features in Action
 <table>
