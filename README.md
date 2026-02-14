@@ -66,6 +66,8 @@ SmartIntake bridges the gap between initial patient contact and professional med
     </td>
    </tr>
 </table>
+
+---
 ### Nurse Experience
 <table>
   <tr>
